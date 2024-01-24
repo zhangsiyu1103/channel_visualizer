@@ -500,7 +500,7 @@ class GUI():
     
         self.img_canvas.create_image(0,0, anchor =tk.NW, image = show_photo)
 
-        img_np = np.array(self.img.resize((300,300)))
+        img_np = np.array(self.img)
         self.dim_img = np.uint8(0.5*img_np)
         self.white_bg = 255*np.ones_like(img_np)
         self.noise_bg = np.uint8(255*np.random.rand(*img_np.shape))
@@ -568,7 +568,7 @@ class GUI():
     
             self.img_canvas.create_image(0,0, anchor =tk.NW, image = refresh_photo)
 
-            img_np = np.array(self.img.resize((300,300)))
+            img_np = np.array(self.img)
             self.dim_img = np.uint8(0.5*img_np)
             self.white_bg = 255*np.ones_like(img_np)
             self.noise_bg = np.uint8(255*np.random.rand(*img_np.shape))
@@ -592,9 +592,9 @@ class GUI():
                 iminp = self.cur_noise_bg
             elif self.bg.get() == "gauss":
                 iminp = self.cur_gauss_bg
-            self.model_img = Image.fromarray(iminp).resize((224,224))
+            self.model_img = Image.fromarray(iminp)
             self.model_inp = numpy_to_tensor(np.array(self.model_img)/255.0)
-            img_np = np.array(self.img.resize((300,300)))
+            #img_np = np.array(self.img)
             #if self.bg.get() == "white":
             #    if not hasattr(self, "white_bg"):
             #        self.white_bg = 255*np.ones_like(img_np)
@@ -675,7 +675,7 @@ class GUI():
 
         photo = ImageTk.PhotoImage(self.img.resize((300,300)))
 
-        img_np = np.array(self.img.resize((300,300)))
+        img_np = np.array(self.img)
         self.white_bg = 255*np.ones_like(img_np)
         self.noise_bg = np.uint8(255*np.random.rand(*img_np.shape))
         self.gauss_bg = gaussian_filter(img_np, sigma = (5,5,0))
@@ -782,8 +782,8 @@ class GUI():
     # Update the rectangle/circle size as the mouse performs 'move press' ONLY if the use has clicked 'draw ROI' or 'reselect ROI'
     def on_move_press(self, event2):
         #if self.myROI_button['state'] == "disabled":
-        x = min(300, max(1,event2.x))
-        y = min(300, max(1,event2.y))
+        x = min(300, max(0,event2.x))
+        y = min(300, max(0,event2.y))
         self.curX = x 
         self.curY = y
             # expand rectangle/circle as you drag the mouse
@@ -800,10 +800,11 @@ class GUI():
         global selected_photo
         self.selected = True
         #self.img_canvas.delete(self.rect)
-        x = min(300, max(1,event3.x))
-        y = min(300, max(1,event3.y))
+        x = min(300, max(0,event3.x))
+        y = min(300, max(0,event3.y))
         self.end_x = x
         self.end_y = y
+
 
         if self.end_x < self.start_x:
             tmp = self.start_x
@@ -820,7 +821,7 @@ class GUI():
         self.img_canvas.unbind("<B1-Motion>")
         self.img_canvas.unbind("<ButtonRelease-1>")
         #img_np = np.array(self.img)
-        img_np = np.array(self.img.resize((300,300)))
+        img_np = np.array(self.img)
         if not hasattr(self, "dim_img"):
             self.dim_img = np.uint8(0.5*img_np)
         self.cur_imselect = self.dim_img.copy()
@@ -842,20 +843,26 @@ class GUI():
         self.cur_noise_bg = self.noise_bg.copy()
         self.cur_gauss_bg = self.gauss_bg.copy()
 
-        self.cur_imselect[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)] = img_np[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)]
-        self.cur_white_bg[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)] = img_np[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)]
-        self.cur_noise_bg[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)] = img_np[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)]
-        self.cur_gauss_bg[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)] = img_np[int(self.start_y):int(self.end_y), int(self.start_x):int(self.end_x)]
+        start_x = int(self.start_x/300*224)
+        start_y = int(self.start_y/300*224)
+        end_x = int(self.end_x/300*224)
+        end_y = int(self.end_y/300*224)
+
+
+        self.cur_imselect[int(start_y):int(end_y), int(start_x):int(end_x)] = img_np[int(start_y):int(end_y), int(start_x):int(end_x)]
+        self.cur_white_bg[int(start_y):int(end_y), int(start_x):int(end_x)] = img_np[int(start_y):int(end_y), int(start_x):int(end_x)]
+        self.cur_noise_bg[int(start_y):int(end_y), int(start_x):int(end_x)] = img_np[int(start_y):int(end_y), int(start_x):int(end_x)]
+        self.cur_gauss_bg[int(start_y):int(end_y), int(start_x):int(end_x)] = img_np[int(start_y):int(end_y), int(start_x):int(end_x)]
 
         self.img_canvas.delete("all")
-        self.select_img = Image.fromarray(self.cur_imselect)
+        self.select_img = Image.fromarray(self.cur_imselect).resize((300,300))
         if self.bg.get() == "white":
             iminp = self.cur_white_bg
         elif self.bg.get() == "noise":
             iminp = self.cur_noise_bg
         elif self.bg.get() == "gauss":
             iminp = self.cur_gauss_bg
-        self.model_img = Image.fromarray(iminp).resize((224,224))
+        self.model_img = Image.fromarray(iminp)
         self.model_inp = numpy_to_tensor(np.array(self.model_img)/255.0)
         if self.model_loaded:
             with torch.no_grad():
