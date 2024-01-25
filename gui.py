@@ -488,6 +488,10 @@ class GUI():
     def show_img(self,event):
         global show_photo
         
+        self.img_canvas.unbind('<Motion>')
+        self.img_canvas.unbind("<ButtonPress-1>")
+        self.img_canvas.unbind("<B1-Motion>")
+        self.img_canvas.unbind("<ButtonRelease-1>")
         #image = event.widget.itemcget(obj, "image")
         self.img_canvas.delete("all")
         image = event.widget.image
@@ -497,7 +501,8 @@ class GUI():
         self.ori_inp = numpy_to_tensor(np.array(self.model_img)/255.0)
         self.model_inp = self.ori_inp.clone()
         show_photo = ImageTk.PhotoImage(image.resize((300,300)))
-    
+        if hasattr(self, "rect"):
+            del self.rect
         self.img_canvas.create_image(0,0, anchor =tk.NW, image = show_photo)
 
         img_np = np.array(self.img)
@@ -545,6 +550,9 @@ class GUI():
             del self.mid
         if hasattr(self, "dim_img"):
             del self.dim_img
+            del self.white_bg
+            del self.noise_bg
+            del self.gauss_bg
         if hasattr(self, "rect"):
             del self.rect
 
@@ -676,6 +684,7 @@ class GUI():
         photo = ImageTk.PhotoImage(self.img.resize((300,300)))
 
         img_np = np.array(self.img)
+        self.dim_img = np.uint8(0.5*img_np)
         self.white_bg = 255*np.ones_like(img_np)
         self.noise_bg = np.uint8(255*np.random.rand(*img_np.shape))
         self.gauss_bg = gaussian_filter(img_np, sigma = (5,5,0))
@@ -822,8 +831,6 @@ class GUI():
         self.img_canvas.unbind("<ButtonRelease-1>")
         #img_np = np.array(self.img)
         img_np = np.array(self.img)
-        if not hasattr(self, "dim_img"):
-            self.dim_img = np.uint8(0.5*img_np)
         self.cur_imselect = self.dim_img.copy()
         #self.selected_roi.append((self.start_y, self.end_y, self.start_x, self.end_x))
 
