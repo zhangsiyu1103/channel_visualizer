@@ -108,14 +108,14 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
                 out = model(cur_inp[i*batch_size:(i+1)*batch_size].to(device))
                 #if not threshold:
                 #out = criterion(out,torch.tensor(target).expand(out.shape[0]).to(device))
-                out = F.softmax(out/3.0,1)
+                #out = F.softmax(out/3.0,1)
                 all_out.append(out)
         all_out = torch.cat(all_out)
         #all_out = torch.cat(all_out)
+       # all_out = all_out.view(C,B,-1)
+        cur_out = criterion(all_out.detach(),torch.tensor(target).expand(all_out.shape[0]).to(device))
+        cur_out = cur_out.view(C,B)
         all_out = all_out.view(C,B,-1)
-        #cur_out = criterion(all_out,torch.tensor(target).expand(all_out.shape[0]).to(device))
-        #cur_out = cur_out.view(C,B)
-        #all_out = all_out.view(C,B,-1)
         #cur_out = all_out.max(2)[1]
         #print(cur_out)
         #print(cur_out.shape)
@@ -123,21 +123,26 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
         #print(cur_out.shape)
         #print(all_out.shape)
 
-        #idx = all_out.max(2)[1]
+        idx = all_out.max(2)[1]
         #print(idx.shape)
         #idx = torch.argwhere(idx == target)
         #print(idx.shape)
         #cur_out = all_out.sum(1)[:,target]
         #cur_out = all_out.sum(1)
         #cur_out = all_out[:,:, target]
-        #cur_out = torch.where(idx == target, torch.zeros_like(cur_out), cur_out)
-        #all_out = torch.where(idx == target, torch.zeros_like(all_out), all_out)
-        #cur_out = cur_out.sum(1)
+        cur_out = torch.where(idx == target, torch.zeros_like(cur_out), cur_out)
+        cur_out = cur_out.sum(1)
         #cur_out = all_out.sum(1)
         #print(all_out.shape)
         #print(all_out.sum(1)[:,target])
         #cur_out = all_out.sum(1)[:,target]
-        cur_out = all_out.sum(1)[:,target]
+        #print(idx.shape)
+        #print(all_out.shape)
+        #print(target)
+        #print((idx==target).shape)
+        #cur_out = torch.where(idx == target, torch.ones_like(all_out), all_out)
+        #cur_out = cur_out.sum(1)[:,target]
+        #cur_out = all_out.sum(1)[:,target]
         #cur_out = all_out.view(C,B).sum(1)
         
         #print(cur_out.shape)
@@ -147,20 +152,20 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
             #cur_max = cur_max.sum(1)
             #cur_out  = cur_out-cur_max
             #cur_val, idx = cur_out.max(0
-            #cur_out[all_idx] = float('inf')
-            #cur_val, idx = cur_out.min(0)
-            cur_out[all_idx] = float('-inf')
-            cur_val, idx = cur_out.max(0)
+            cur_out[all_idx] = float('inf')
+            cur_val, idx = cur_out.min(0)
+            #cur_out[all_idx] = float('-inf')
+            #cur_val, idx = cur_out.max(0)
             idx = idx.squeeze().item()
             attr_step[0,idx]=1
         else:
             #idx = cur_out.argmin().squeeze().item()
             #cur_val, idx = cur_out.min(0)
-            #cur_out[all_idx] = float('-inf')
-            #cur_val, idx = cur_out.max(0)
-            cur_out[all_idx] = float('inf')
+            cur_out[all_idx] = float('-inf')
+            cur_val, idx = cur_out.max(0)
+            #cur_out[all_idx] = float('inf')
             #print(cur_out[:20])
-            cur_val, idx = cur_out.min(0)
+            #cur_val, idx = cur_out.min(0)
             idx = idx.squeeze().item()
             attr_step[0,idx]= 0
         all_idx.append(idx)

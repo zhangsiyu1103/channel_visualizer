@@ -322,32 +322,70 @@ class Wrapper(object):
         self.weight_save = dict()
         self.bias_save = dict()
 
+    def init_submodel(self, model_name):
 
-    def divide(self, model_name):
-        #first half of model
         self.model_name = model_name
+
+
         self.mid = MID_LAYER[self.model_name]
-
         if self.model_name == "resnet18":
-            layers = self._layers[:4] + [self._modules[1],self._modules[4], self._modules[8], self._modules[12]]
+            self.model_layers = self._layers[:4] + [self._modules[1],self._modules[4], self._modules[8], self._modules[12]] + self._layers[self.mid+1:]
+            self.model_cut = {self._modules_names[1]:5,self._modules_names[4]:6, self._modules_names[8]:7, self._modules_names[12]:8}
         elif self.model_name == "resnet34":
-            layers = self._layers[:4] + [self._modules[1],self._modules[5], self._modules[11], self._modules[19]]
+            self.model_layers = self._layers[:4] + [self._modules[1],self._modules[5], self._modules[11], self._modules[19]] + self._layers[self.mid+1:]
+            self.model_cut = {self._modules_names[1]:5,self._modules_names[5]:6, self._modules_names[11]:7, self._modules_names[19]:8}
         elif self.model_name == "resnet50":
-            layers = self._layers[:4] + [self._modules[1],self._modules[6], self._modules[12], self._modules[20]]
+            self.model_layers = self._layers[:4] + [self._modules[1],self._modules[6], self._modules[12], self._modules[20]] + self._layers[self.mid+1:]
+            self.model_cut = {self._modules_names[1]:5,self._modules_names[6]:6, self._modules_names[12]:7, self._modules_names[20]:8}
         elif self.model_name == "resnet101":
-            layers = self._layers[:4] + [self._modules[1],self._modules[6], self._modules[12], self._modules[37]]
-        elif self.model_name == "googlenet":
-            layers = [self._modules[1], self._layers[3], self._modules[2],self._modules[3],self._layers[10], self._modules[4], self._modules[14], self._layers[49], self._modules[24], self._modules[34], self._modules[44], self._modules[54], self._modules[64], self._layers[145],self._modules[74], self._modules[84]]
-        else:
-            layers = self._layers[:self.mid+1]
+            self.model_layers = self._layers[:4] + [self._modules[1],self._modules[6], self._modules[12], self._modules[37]] +self._layers[self.mid+1:]
+            self.model_cut = {self._modules_names[1]:5,self._modules_names[6]:6, self._modules_names[12]:7, self._modules_names[37]:8}
+        elif self.model_name == "vgg16":
+            self.model_layers = self._layers
+            print(self._layers_names)
+            self.model_cut = dict()
+            for k in [4,9,16,23,30]:
+                self.model_cut[self._layers_names[k]] = k
+        elif self.model_name == "vgg19":
+            self.model_layers = self._layers
+            print(self._layers_names)
+            self.model_cut = dict()
+            for k in [4,9,18,27,36]:
+                self.model_cut[self._layers_names[k]] = k
 
-        sub_model1= get_seq_model(layers)
 
-        layers = self._layers[self.mid+1:]
-        sub_model2 =  get_seq_model(layers)
+    def divide(self, idx):
+        sub_model1= get_seq_model(self.model_layers[:idx + 1])
+
+        sub_model2 =  get_seq_model(self.model_layers[idx + 1:])
 
 
         return sub_model1, sub_model2
+    #def divide(self, model_name):
+    #    #first half of model
+    #    self.model_name = model_name
+    #    self.mid = MID_LAYER[self.model_name]
+
+    #    if self.model_name == "resnet18":
+    #        layers = self._layers[:4] + [self._modules[1],self._modules[4], self._modules[8], self._modules[12]]
+    #    elif self.model_name == "resnet34":
+    #        layers = self._layers[:4] + [self._modules[1],self._modules[5], self._modules[11], self._modules[19]]
+    #    elif self.model_name == "resnet50":
+    #        layers = self._layers[:4] + [self._modules[1],self._modules[6], self._modules[12], self._modules[20]]
+    #    elif self.model_name == "resnet101":
+    #        layers = self._layers[:4] + [self._modules[1],self._modules[6], self._modules[12], self._modules[37]]
+    #    elif self.model_name == "googlenet":
+    #        layers = [self._modules[1], self._layers[3], self._modules[2],self._modules[3],self._layers[10], self._modules[4], self._modules[14], self._layers[49], self._modules[24], self._modules[34], self._modules[44], self._modules[54], self._modules[64], self._layers[145],self._modules[74], self._modules[84]]
+    #    else:
+    #        layers = self._layers[:self.mid+1]
+
+    #    sub_model1= get_seq_model(layers)
+
+    #    layers = self._layers[self.mid+1:]
+    #    sub_model2 =  get_seq_model(layers)
+
+
+    #    return sub_model1, sub_model2
 
 
 

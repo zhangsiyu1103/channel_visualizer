@@ -115,7 +115,7 @@ class GUI():
         self.browseframe = ttk.LabelFrame(self.dataframe, text = "Open Image")
         self.browseframe.grid(column = 0, row = 0, padx = 10, pady = 10,sticky = tk.W, columnspan = 1)
         self.editframe = ttk.LabelFrame(self.window, text = "Edit Image")
-        self.editframe.grid(column = 3, row = 1, padx = 50, pady = 0,sticky = tk.W, columnspan = 2)
+        self.editframe.grid(column = 3, row = 1, padx = 30, pady = 0,sticky = tk.W, columnspan = 2)
         self.bgframe = ttk.LabelFrame(self.window, text = "Choose Background")
         self.bgframe.grid(column = 3, row = 2, padx = 10, pady = 0,sticky = tk.W, columnspan = 4)
         self.channelframe = ttk.LabelFrame(self.window, text = "Channel Edit")
@@ -188,14 +188,25 @@ class GUI():
         
 
         self.modelframe = ttk.LabelFrame(self.window, text = "Choose Model")
-        self.modelframe.grid(column = 3, row = 0, padx = 50, pady = 20,sticky = tk.W, columnspan = 2)
+        self.modelframe.grid(column = 3, row = 0, padx = 30, pady = 20,sticky = tk.W, columnspan = 1)
         self.modelcombo = ttk.Combobox(self.modelframe, state = "readonly", values = ["vgg16","vgg19","resnet18","resnet34"], width = 10)
         self.modelcombo.grid(column =3,row = 0,sticky = tk.W)
         self.modelcombo.bind("<<ComboboxSelected>>",lambda e: Thread(target=self.model_selection_change, args = (e,)).start())
+
+
+        self.modelcutframe = ttk.LabelFrame(self.window, text = "Select model cut")
+        self.modelcutframe.grid(column = 4, row = 0, padx = 10, pady = 20,sticky = tk.W, columnspan = 1)
+        self.modelcutcombo = ttk.Combobox(self.modelcutframe, state = "readonly", values = [])
+        self.modelcutcombo.grid(column =4,row = 0,sticky = tk.W)
+        self.modelcutcombo.bind("<<ComboboxSelected>>",lambda e: Thread(target=self.model_divide_change, args = (e,)).start())
+
+
         self.datasetframe = ttk.LabelFrame(self.dataframe, text = "Load Dataset")
         self.datasetframe.grid(column = 1, row = 0, padx = 0, pady = 0,sticky = tk.W, columnspan = 2)
         self.databutton = ttk.Button(self.datasetframe, text = "Load ImageNet",command = lambda: Thread(target=self.load_dataset).start())
         self.databutton.grid(column = 1, row = 2, sticky = tk.W)
+        #self.dataset_msg = ttk.Label(self.datasetframe)
+        #self.dataset_msg.grid(column = 1, row = 3, columnspan = 1)
         self.datasettype=tk.StringVar()
         self.datasettype.set("val")
         train = ttk.Radiobutton(self.datasetframe, text = "Train", variable = self.datasettype, value = "train")
@@ -240,6 +251,8 @@ class GUI():
         self.addbutton.grid(column = 8, row =3, padx = 2, sticky = tk.W)
         self.clearbutton = ttk.Button(self.channelframe, text = "Clear",command = self.clear_channel)
         self.clearbutton.grid(column = 9, row =3, padx = 2, sticky = tk.W)
+        self.add_channel_msg = ttk.Label(self.channelframe, text="")
+        self.add_channel_msg.grid(column = 9, row = 5, columnspan = 1)
 
 
         self.listbox = tk.Listbox(self.window, width = 30, selectmode = "single")
@@ -299,33 +312,52 @@ class GUI():
         #img = self.display_canvas.create_image(0, 0 , anchor =tk.NW, image = photo)
 
 
+    def model_divide_change(self,event):
+        self.clear_channel()
+        self.model_cut = self.modelcutcombo.get()
+        
+        self.submodel1, self.submodel2 = self.wrapped.divide(self.wrapped.model_cut[self.model_cut])
 
-
-    def model_selection_change(self,event):
-        model_name = self.modelcombo.get()
-
-        if model_name == "vgg16":
-            self.model = models.vgg16(pretrained=True)
-        if model_name == "vgg19":
-            self.model = models.vgg19(pretrained=True)
-        elif model_name == "resnet18":
-            self.model = models.resnet18(pretrained=True)
-        elif model_name == "resnet34":
-            self.model = models.resnet34(pretrained=True)
-        elif model_name == "resnet50":
-            self.model = models.resnet50(pretrained=True)
-        self.model.to(self.device)
-        self.wrapped = Wrapper(self.model)
-        self.submodel1, self.submodel2 = self.wrapped.divide(model_name)
         if hasattr(self, "model_inp"):
             with torch.no_grad():
                 self.mid = self.submodel1(self.model_inp)
-                model_target = self.submodel2(self.mid).max(1)[1]
+                self.max_channel =  self.mid.shape[1]
+            if self.display_channel_:
+                self.display_channel()
+
+    def model_selection_change(self,event):
+        self.model_name = self.modelcombo.get()
+
+        if self.model_name == "vgg16":
+            self.model = models.vgg16(pretrained=True)
+        elif self.model_name == "vgg19":
+            self.model = models.vgg19(pretrained=True)
+        elif self.model_name == "resnet18":
+            self.model = models.resnet18(pretrained=True)
+        elif self.model_name == "resnet34":
+            self.model = models.resnet34(pretrained=True)
+        elif self.model_name == "resnet50":
+            self.model = models.resnet50(pretrained=True)
+        self.model.to(self.device)
+        self.wrapped = Wrapper(self.model)
+        self.wrapped.init_submodel(self.model_name)
+        cut_points = list(self.wrapped.model_cut.keys())
+        cut_points.sort()
+        self.modelcutcombo.config(values = cut_points)
+        #self.submodel1, self.submodel2 = self.wrapped.divide(model_name)
+        if hasattr(self, "model_inp"):
+            with torch.no_grad():
+                if hasattr(self, "submodel1"):
+                    self.mid = self.submodel1(self.model_inp)
+                    self.max_channel =  self.mid.shape[1]
+                    model_target = self.submodel2(self.mid).max(1)[1]
+                    if self.display_channel_:
+                        self.display_channel()
+                else:
+                    model_target = self.model(self.model_inp).max(1)[1]
                 self.target.config(text = "Model Prediction: "+str(model_target.item()) + " " + get_class_name(model_target.item()))
                 #if hasattr(self, "target"):
                 #self.target.config(text = "Model Prediction: " + get_class_name(model_target.item()))
-            if self.display_channel_:
-                self.display_channel()
         self.model_loaded = True
                 #else:
                 #    self.target = tk.Label(self.window, text = "Model Prediction: " + get_class_name(model_target.item()) )
@@ -355,7 +387,7 @@ class GUI():
         if not category:
             return
         category = int(category)
-        if self.datasettype == "train":
+        if self.datasettype.get() == "train":
             data = self.train_data
         else:
             data = self.val_data
@@ -397,6 +429,10 @@ class GUI():
             #    self.channel_msg.grid(column = 6, row = 5, columnspan = 1)
             return
 
+        if not hasattr(self,"submodel1"):
+            #if hasattr(self, "channel_msg"):
+            self.channel_msg.config(text = "Model Cut point not selected")
+            return
         if not hasattr(self,"train_data") and not self.ind.get():
             #if hasattr(self, "channel_msg"):
             self.channel_msg.config(text = "Input dataset not loaded")
@@ -417,7 +453,7 @@ class GUI():
 
         if not self.ind.get():
             category = model_target.item()
-            if self.datasettype == "train":
+            if self.datasettype.get() == "train":
                 data = self.train_data
             else:
                 data = self.val_data
@@ -447,6 +483,12 @@ class GUI():
 
 
     def add_channel(self):
+        if not hasattr(self, "mid"):
+            self.add_channel_msg.config(text = "Mid activation not computed")
+            return
+        if self.custom_channel.get() < 0 or self.custom_channel.get() >= self.max_channel:
+            self.add_channel_msg.config(text = "Channel out of range")
+            return
         self.listbox.insert(tk.END, int(self.custom_channel.get()))
     def clear_channel(self):
         self.display_channel_ = False
@@ -515,11 +557,15 @@ class GUI():
 
         if self.model_loaded:
             with torch.no_grad():
-                self.mid = self.submodel1(self.model_inp)
-                model_target = self.submodel2(self.mid).max(1)[1]
+                if hasattr(self, "submodel1"):
+                    self.mid = self.submodel1(self.model_inp)
+                    self.max_channel =  self.mid.shape[1]
+                    model_target = self.submodel2(self.mid).max(1)[1]
+                    if self.display_channel_:
+                        self.display_channel()
+                else:
+                    model_target = self.model(self.model_inp).max(1)[1]
                 self.target.config(text = "Model Prediction: "+str(model_target.item()) + " " + get_class_name(model_target.item()))
-            if self.display_channel_:
-                self.display_channel()
                 #if hasattr(self, "target"):
                 #self.target.config(text = "Model Prediction: " + get_class_name(model_target.item()))
                 #self.mid = self.submodel1(self.model_inp)
@@ -548,6 +594,7 @@ class GUI():
             del self.ori_inp
         if hasattr(self, "mid"):
             del self.mid
+            del self.max_channel
         if hasattr(self, "dim_img"):
             del self.dim_img
             del self.white_bg
@@ -585,11 +632,15 @@ class GUI():
 
             if self.model_loaded:
                 with torch.no_grad():
-                    self.mid = self.submodel1(self.model_inp)
-                    model_target = self.submodel2(self.mid).max(1)[1]
+                    if hasattr(self, "submodel1"):
+                        self.mid = self.submodel1(self.model_inp)
+                        self.max_channel =  self.mid.shape[1]
+                        model_target = self.submodel2(self.mid).max(1)[1]
+                        if self.display_channel_:
+                            self.display_channel()
+                    else:
+                        model_target = self.model(self.model_inp).max(1)[1]
                     self.target.config(text = "Model Prediction: "+str(model_target.item()) + " " + get_class_name(model_target.item()))
-                if self.display_channel_:
-                    self.display_channel()
 
     def change_bg(self):
         if self.selected:
@@ -621,11 +672,15 @@ class GUI():
             #self.select_img = Image.fromarray(imselect).resize((224,224))
             if self.model_loaded:
                 with torch.no_grad():
-                    self.mid = self.submodel1(self.model_inp)
-                    model_target = self.submodel2(self.mid).max(1)[1]
+                    if hasattr(self, "submodel1"):
+                        self.mid = self.submodel1(self.model_inp)
+                        self.max_channel =  self.mid.shape[1]
+                        model_target = self.submodel2(self.mid).max(1)[1]
+                        if self.display_channel_:
+                            self.display_channel()
+                    else:
+                        model_target = self.model(self.model_inp).max(1)[1]
                     self.target.config(text = "Model Prediction: "+str(model_target.item()) + " " + get_class_name(model_target.item()))
-                if self.display_channel_:
-                    self.display_channel()
             if self.show:
                 change_photo = ImageTk.PhotoImage(self.model_img.resize((300,300)))
                 self.img_canvas.delete("all")
@@ -638,6 +693,7 @@ class GUI():
         root = filedialog.askdirectory(initialdir =  cur_dir, title = "Select Imagenet Root")
 
         if not root:
+            self.databutton.config(state = tk.NORMAL)
             return
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
@@ -649,16 +705,19 @@ class GUI():
             ])
         traindir = os.path.join(root, "train")
         valdir = os.path.join(root, "val")
-
-        self.train_data = datasets.ImageFolder(
-                traindir,
-                cur_transform)
-        self.val_data = datasets.ImageFolder(
-                valdir,
-                cur_transform)
-        self.load.config(text = "dataset loaded")
-        self.dataset_loaded = True
-        self.databutton.config(state = tk.NORMAL)
+        try:
+            self.train_data = datasets.ImageFolder(
+                    traindir,
+                    cur_transform)
+            self.val_data = datasets.ImageFolder(
+                    valdir,
+                    cur_transform)
+            self.load.config(text = "dataset loaded")
+            self.dataset_loaded = True
+            self.databutton.config(state = tk.NORMAL)
+        except:
+            self.load.config(text = "Wrong category")
+            self.databutton.config(state = tk.NORMAL)
 
     def browse_and_display(self):
         global photo
@@ -693,12 +752,16 @@ class GUI():
         self.img_canvas.create_image(0,0, anchor =tk.NW, image = photo)
         if self.model_loaded:
             with torch.no_grad():
-                self.mid = self.submodel1(self.model_inp)
-                model_target = self.submodel2(self.mid).max(1)[1]
+                if hasattr(self, "submodel1"):
+                    self.mid = self.submodel1(self.model_inp)
+                    self.max_channel =  self.mid.shape[1]
+                    model_target = self.submodel2(self.mid).max(1)[1]
+                    if self.display_channel_:
+                        self.display_channel()
+                else:
+                    model_target = self.model(self.model_inp).max(1)[1]
                 #if hasattr(self, "target"):
                 self.target.config(text = "Model Prediction: "+str(model_target.item()) + " " + get_class_name(model_target.item()))
-            if self.display_channel_:
-                self.display_channel()
                 #else:
                 #    self.target = tk.Label(self.window, text = "Model Prediction: " + get_class_name(model_target.item()) )
                 #    self.target.grid(row = 1, column = 4, stick = tk.SW, columnspan = 2)
@@ -873,11 +936,15 @@ class GUI():
         self.model_inp = numpy_to_tensor(np.array(self.model_img)/255.0)
         if self.model_loaded:
             with torch.no_grad():
-                self.mid = self.submodel1(self.model_inp)
-                model_target = self.submodel2(self.mid).max(1)[1]
+                if hasattr(self, "submodel1"):
+                    self.mid = self.submodel1(self.model_inp)
+                    self.max_channel =  self.mid.shape[1]
+                    model_target = self.submodel2(self.mid).max(1)[1]
+                    if self.display_channel_:
+                        self.display_channel()
+                else:
+                    model_target = self.model(self.model_inp).max(1)[1]
                 self.target.config(text = "Model Prediction: "+str(model_target.item()) + " " + get_class_name(model_target.item()))
-                if self.display_channel_:
-                    self.display_channel()
 
 
         #self.select_img.resize((300,300))
