@@ -271,7 +271,10 @@ class GUI():
         self.target.grid(row = 1, column = 3, stick = tk.W, columnspan = 2)
 
 
-
+        if hasattr(self, "base_width"):
+            del self.base_width
+            del self.base_height
+        self.fix_shape = False
         self.selected = False
         self.show = False
         self.dataset_loaded = False
@@ -554,6 +557,10 @@ class GUI():
         self.gauss_bg = gaussian_filter(img_np, sigma = (5,5,0))
 
         self.selected = False
+        self.fix_shape = False
+        if hasattr(self, "base_width"):
+            del self.base_width
+            del self.base_height
 
         if self.model_loaded:
             with torch.no_grad():
@@ -580,8 +587,12 @@ class GUI():
         for child in self.display_canvas.winfo_children():
             child.destroy()
         self.selected = False
+        self.fix_shape = False
         self.show = False
         self.display_channel_ = False
+        if hasattr(self, "base_width"):
+            del self.base_width
+            del self.base_height
 
         self.display_imgs = []
         self.displayscroll.config(command = None)
@@ -604,6 +615,10 @@ class GUI():
             del self.rect
 
     def refresh(self):
+        if hasattr(self, "base_width"):
+            del self.base_width
+            del self.base_height
+        self.fix_shape = False
         self.selected = False
         self.show = False
         self.img_canvas.delete("all")
@@ -729,6 +744,10 @@ class GUI():
         #label.configure(text = filename)
         if not filename:
             return
+        if hasattr(self, "base_width"):
+            del self.base_width
+            del self.base_height
+        self.fix_shape = False
         self.selected = False
         self.show = False
         self.img = Image.open(filename)
@@ -785,10 +804,14 @@ class GUI():
         self.show = False
         self.img_canvas.bind('<Motion>', self.motion)
         self.img_canvas.bind("<ButtonPress-1>", self.on_button_press)
+        self.img_canvas.bind("<Shift-ButtonPress-1>", self.on_button_press)
         self.img_canvas.bind("<B1-Motion>", self.on_move_press)
+        self.img_canvas.bind("<Shift-B1-Motion>", self.on_move_press_shift)
         self.img_canvas.bind("<ButtonRelease-1>", self.on_button_release)
+        self.img_canvas.bind("<Shift-ButtonRelease-1>", self.on_button_release)
         if self.selected:
             global selected_photo_
+
             self.dim_img = self.cur_imselect.copy()
             self.white_bg = self.cur_white_bg.copy()
             self.noise_bg = self.cur_noise_bg.copy()
@@ -799,6 +822,7 @@ class GUI():
                 del self.rect
             self.img_canvas.delete("all")
             self.img_canvas.create_image(0,0, anchor =tk.NW, image = selected_photo_)
+            self.selected = False
         #self.myROI_button.grid_forget()
     
     # Shows the cursor coordinates on the photo on mycanvas.    
@@ -821,6 +845,8 @@ class GUI():
         #        self.rect = self.mycanvas.create_rectangle(self.x, self.y, self.x+1, self.y+1, outline='red')
         #    else:
         #self.rect = self.img_canvas.create_oval(self.x, self.y, self.x+1, self.y+1, outline='red')
+
+
         if hasattr(self, "rect"):
             cur_x = event1.x
             cur_y = event1.y
@@ -842,6 +868,12 @@ class GUI():
                 self.start_y = self.end_y
                 self.img_canvas.bind("<B1-Motion>", self.on_move_press)
                 self.img_canvas.bind("<ButtonRelease-1>", self.on_button_release)
+            else:
+                return
+            if self.selected:
+                self.fix_shape = True
+                self.base_width = cur_x - self.start_x
+                self.base_height = cur_y - self.start_y
         else:
 
             self.start_x = event1.x
@@ -857,26 +889,98 @@ class GUI():
         #if self.myROI_button['state'] == "disabled":
         x = min(300, max(0,event2.x))
         y = min(300, max(0,event2.y))
-        self.curX = x 
-        self.curY = y
+        self.end_x = x 
+        self.end_y = y
             # expand rectangle/circle as you drag the mouse
         #self.rect = self.img_canvas.create_rectangle(self.x, self.y, self.x+1, self.y+1, outline='red')
-        self.img_canvas.coords(self.rect, self.start_x, self.start_y, self.curX, self.curY)
+        self.img_canvas.coords(self.rect, self.start_x, self.start_y, self.end_x, self.end_y)
             #if self.resize == False:
         #if hasattr(self, "myxy"):
         #    self.myxy.config(text = "XY coordinates: " + str(self.x) + ", " + str(self.y))
         #else:
         #    self.myxy = tk.Label(self.window, text = "XY coordinates: " + str(self.curX) + ", " + str(self.curY))
         #    self.myxy.grid(row = 7, column = 1, columnspan = 1)
-    
+
+
+    def on_move_press_shift(self, event2):
+        #if self.myROI_button['state'] == "disabled":
+        x = min(300, max(0,event2.x))
+        y = min(300, max(0,event2.y))
+        x_diff = abs(x-self.start_x)
+        y_diff = abs(y-self.start_y)
+        if x > self.start_x:
+            x_sign = 1
+        else:
+            x_sign = -1
+        if y > self.start_y:
+            y_sign = 1
+        else:
+            y_sign = -1
+        if x_diff < y_diff:
+            if self.fix_shape:
+                #y_diff = x_diff/self.base_width*self.base_height
+                x_diff = y_diff/self.base_height*self.base_width
+            else:
+                x_diff = y_diff
+        else:
+            if self.fix_shape:
+                y_diff = x_diff/self.base_width*self.base_height
+            else:
+                y_diff = x_diff
+
+
+        self.end_x = self.start_x + x_diff*x_sign
+        self.end_y = self.start_y + y_diff*y_sign
+        if self.end_x > self.start_x and self.end_x > 300:
+            self.end_x = 300
+            y_diff = (300-self.start_x)/self.base_width*self.base_height
+            self.end_y = self.start_y + abs(y_diff)*y_sign
+        elif self.end_x < self.start_x and self.end_x <= 0:
+            self.end_x = 0
+            y_diff = (0-self.start_x)/self.base_width*self.base_height
+            self.end_y = self.start_y + abs(y_diff)*y_sign
+        if self.end_y > self.start_y and self.end_y > 300:
+            self.end_y = 300
+            x_diff = (300-self.start_y)/self.base_width*self.base_height
+            self.end_x = self.start_x + abs(x_diff)*x_sign
+        elif self.end_y < self.start_y and self.end_y <=0:
+            self.end_y = 0
+            x_diff = (0-self.start_y)/self.base_width*self.base_height
+            self.end_x = self.start_x + abs(x_diff)*x_sign
+
+
+
+
+            # expand rectangle/circle as you drag the mouse
+        #self.rect = self.img_canvas.create_rectangle(self.x, self.y, self.x+1, self.y+1, outline='red')
+        #self.img_canvas.coords(self.rect, self.start_x, self.start_y, self.curX, self.curY)
+        self.img_canvas.coords(self.rect, self.start_x, self.start_y, self.end_x, self.end_y)
+            #if self.resize == False:
+        #if hasattr(self, "myxy"):
+        #    self.myxy.config(text = "XY coordinates: " + str(self.x) + ", " + str(self.y))
+        #else:
+        #    self.myxy = tk.Label(self.window, text = "XY coordinates: " + str(self.curX) + ", " + str(self.curY))
+        #    self.myxy.grid(row = 7, column = 1, columnspan = 1)
+
+
+
+    #def on_button_release(self, event3):
+    #    global selected_photo
+    #    self.selected = True
+    #    #self.img_canvas.delete(self.rect)
+    #    x = min(300, max(0,event3.x))
+    #    y = min(300, max(0,event3.y))
+    #    self.end_x = x
+    #    self.end_y = y
+
     def on_button_release(self, event3):
         global selected_photo
         self.selected = True
         #self.img_canvas.delete(self.rect)
-        x = min(300, max(0,event3.x))
-        y = min(300, max(0,event3.y))
-        self.end_x = x
-        self.end_y = y
+        #x = min(300, max(0,event3.x))
+        #y = min(300, max(0,event3.y))
+        #self.end_x = x
+        #self.end_y = y
 
 
         if self.end_x < self.start_x:
