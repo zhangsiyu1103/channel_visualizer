@@ -729,6 +729,8 @@ class GUI():
         #label.configure(text = filename)
         if not filename:
             return
+        self.selected = False
+        self.show = False
         self.img = Image.open(filename)
         #self.img = self.img.resize((300,300))
         self.img = self.img.resize((224,224))
@@ -741,7 +743,6 @@ class GUI():
         self.insert_display(self.ori_inp)
 
         photo = ImageTk.PhotoImage(self.img.resize((300,300)))
-
         img_np = np.array(self.img)
         self.dim_img = np.uint8(0.5*img_np)
         self.white_bg = 255*np.ones_like(img_np)
