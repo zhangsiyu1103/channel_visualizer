@@ -32,7 +32,10 @@ def get_random_reference(inp):
     return reference
 
 
-def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservation = True, init_idx = None, threshold = False, reference_func = torch.zeros_like):
+def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservation = True, init_idx = None, threshold = False, reference_func = torch.zeros_like, heuristic = "softmax"):
+    if not heuristic in ("softmax","crossentropy","logit"):
+        raise Exception("heuristic not defined")
+        return
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -40,9 +43,18 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
     else:
         device = "cpu"
     #attr_step = torch.zeros((*inp.shape[:2], 1,1)).to(device)
+    criterion = torch.nn.CrossEntropyLoss(reduction = 'none')
     if threshold:
         with torch.no_grad():
-            orig_out = model(inp)[:,target]
+            orig_out = model(inp)
+            if heuristic == "softmax":
+                orig_out = F.softmax(orig_out/3, 1)[:,target]
+                print(orig_out)
+            elif heuristic == "crossentropy":
+                orig_out = criterion(orig_out, target)
+                print(orig_out)
+            elif heuristic == "logit":
+                orig_out = orig_out[:,target]
     B,C,H,W= inp.shape
     if preservation:
         attr_step = torch.zeros(1,C).to(device)
@@ -80,7 +92,6 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
                 return init_idx
         all_idx = init_idx
 
-    criterion = torch.nn.CrossEntropyLoss(reduction = 'none')
 
     greedy_step = torch.ones(C).to(device)
     greedy_step = torch.diag(greedy_step)
@@ -107,15 +118,30 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
             with torch.no_grad():
                 out = model(cur_inp[i*batch_size:(i+1)*batch_size].to(device))
                 #if not threshold:
-                #out = criterion(out,torch.tensor(target).expand(out.shape[0]).to(device))
-                #out = F.softmax(out/3.0,1)
+                    #out = F.softmax(out,1)
+                    #out = criterion(out,torch.tensor(target).expand(out.shape[0]).to(device))
+                if heuristic == "softmax":
+                    out = F.softmax(out/3, 1)
                 all_out.append(out)
         all_out = torch.cat(all_out)
-        #all_out = torch.cat(all_out)
-       # all_out = all_out.view(C,B,-1)
-        cur_out = criterion(all_out.detach(),torch.tensor(target).expand(all_out.shape[0]).to(device))
-        cur_out = cur_out.view(C,B)
-        all_out = all_out.view(C,B,-1)
+        #all_out = all_out.view(C,B,-1)
+        #cur_out = criterion(all_out,torch.tensor(target).expand(all_out.shape[0]).to(device))
+        #cur_out = cur_out.view(C,B)
+        #all_out = all_out.view(C,B,-1)
+        if heuristic == "crossentropy":
+            c_out = criterion(all_out,target.expand(all_out.shape[0]).to(device))
+            all_out = all_out.view(C,B, -1)
+            c_out = c_out.view(C,B)
+            #cur_out = cur_out.view(C,B)
+            cur_out = c_out.sum(1)
+            #print(cur_out.shape)
+        else:
+            all_out = all_out.view(C,B,-1)
+            cur_out = all_out.sum(1)[:,target.item()]
+        #if heuristic == "crossentropy":
+        #    cur_out = cur_out.sum(1)
+        #else:
+        #    cur_out = all_out.sum(1)[:,target.item()]
         #cur_out = all_out.max(2)[1]
         #print(cur_out)
         #print(cur_out.shape)
@@ -123,49 +149,42 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
         #print(cur_out.shape)
         #print(all_out.shape)
 
-        idx = all_out.max(2)[1]
+        #idx = all_out.max(2)[1]
         #print(idx.shape)
         #idx = torch.argwhere(idx == target)
         #print(idx.shape)
         #cur_out = all_out.sum(1)[:,target]
-        #cur_out = all_out.sum(1)
         #cur_out = all_out[:,:, target]
-        cur_out = torch.where(idx == target, torch.zeros_like(cur_out), cur_out)
-        cur_out = cur_out.sum(1)
-        #cur_out = all_out.sum(1)
-        #print(all_out.shape)
-        #print(all_out.sum(1)[:,target])
+        #cur_out = torch.where(idx == target, torch.zeros_like(cur_out), cur_out)
         #cur_out = all_out.sum(1)[:,target]
-        #print(idx.shape)
-        #print(all_out.shape)
-        #print(target)
-        #print((idx==target).shape)
-        #cur_out = torch.where(idx == target, torch.ones_like(all_out), all_out)
-        #cur_out = cur_out.sum(1)[:,target]
-        #cur_out = all_out.sum(1)[:,target]
-        #cur_out = all_out.view(C,B).sum(1)
         
         #print(cur_out.shape)
         if preservation:
             #idx = cur_out.argmax().squeeze().item()
             #cur_max, cur_target = all_out.max(2)
             #cur_max = cur_max.sum(1)
+            if heuristic == "crossentropy":
+                cur_out[all_idx] = float('inf')
+                cur_val, idx = cur_out.min(0)
+            else:
+                cur_out[all_idx] = float('-inf')
+                cur_val, idx = cur_out.max(0)
+                #print(cur_val)
             #cur_out  = cur_out-cur_max
             #cur_val, idx = cur_out.max(0
-            cur_out[all_idx] = float('inf')
-            cur_val, idx = cur_out.min(0)
-            #cur_out[all_idx] = float('-inf')
-            #cur_val, idx = cur_out.max(0)
             idx = idx.squeeze().item()
             attr_step[0,idx]=1
         else:
             #idx = cur_out.argmin().squeeze().item()
             #cur_val, idx = cur_out.min(0)
-            cur_out[all_idx] = float('-inf')
-            cur_val, idx = cur_out.max(0)
-            #cur_out[all_idx] = float('inf')
-            #print(cur_out[:20])
-            #cur_val, idx = cur_out.min(0)
+            if heuristic == "crossentropy":
+                cur_out[all_idx] = float('-inf')
+                cur_val, idx = cur_out.max(0)
+            else:
+                cur_out[all_idx] = float('inf')
+                cur_val, idx = cur_out.min(0)
+            #cur_out[all_idx] = float('-inf')
+            #cur_val, idx = cur_out.max(0)
             idx = idx.squeeze().item()
             attr_step[0,idx]= 0
         all_idx.append(idx)
@@ -176,36 +195,47 @@ def channel_greedy(model, inp, target, batch_size = 256, attr = None, preservati
         #print(cur_out[idx])
         #print(cur_val)
         #print(last_val)
-        #print(all_out[idx][:,target].sum())
+        #print(all_out[idx][:,target])
         #print(all_out[idx][:,639].sum())
+        #print(c_out[idx])
+        #print(orig_out)
         if preservation:
-            if threshold:
-                if (all_out[idx][:,target] >= orig_out).all():
+            if (all_out[idx].max(1)[1] == target).all():
+                if threshold:
+                    #break
+                    if heuristic == "crossentropy":
+                        if (c_out[idx] <= orig_out).all():
+                            break
+                    elif (all_out[idx][:,target] >= orig_out).all():
+                        break
+                else:
                     break
-            else:
-                if (all_out[idx].max(1)[1] == target).all():
-                    break
-            #if cur_val <= last_val:
-            #    break
+
             last_val = cur_val
         else:
             if (all_out[idx].max(1)[1] != target).all():
-                break
-            #if cur_val >= last_val:
-            #    break
+                if threshold:
+                    if heuristic == "crossentropy":
+                        if (c_out[idx] >= orig_out).all():
+                            break
+                    elif (all_out[idx][:,target] <= orig_out).all():
+                        break
+                else:
+                    break
+
             last_val = cur_val
 
     return all_idx
         
 
 def channel_greedy_modify(model, inp, target_pred, target_gt, batch_size = 256, attr = None, preservation = True,  threshold = False, reference_func = torch.zeros_like):
+    #attr_step = torch.zeros((*inp.shape[:2], 1,1)).to(device)
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-    #attr_step = torch.zeros((*inp.shape[:2], 1,1)).to(device)
     with torch.no_grad():
         orig_out = model(inp).softmax(1)[0,target_pred]
     B,C,H,W= inp.shape
@@ -284,6 +314,94 @@ def channel_greedy_modify(model, inp, target_pred, target_gt, batch_size = 256, 
 
 
 
+def generate_attr_channel_ind(wrapped_model, inp, target, area,channel_attr, attr = None, mode = "preservation", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = get_random_reference,  binary = False, threshold = None, area_regulation = True, area_as_ratio = True, mse = False):
+
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
+    model = wrapped_model.model
+    if mse:
+        with torch.no_grad():
+            out = model(inp)
+        criterion = torch.nn.MSELoss()
+
+    #print(torch.count_nonzero(channel_attr))
+    inp = inp.to(device)
+    if attr is None:
+        if shape is None:
+            attr = torch.ones_like(inp)
+        else:
+            attr = torch.ones(shape).to(device)
+    ind_attr = attr.clone()
+
+    ind_attr.requires_grad = True
+
+    n_ele = torch.numel(ind_attr[0])
+
+    optimizer = optim.Adam([ind_attr], lr = lr)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
+    if area_as_ratio:
+        n = int(n_ele*area)
+    else:
+        n = area
+
+    wrapped_model.defense()
+
+    #inp_save = inp.clone()
+    for i in range(epochs):
+        attr = torch.mul(ind_attr, channel_attr)
+        reference = reference_func(inp).to(device)
+        if area_regulation:
+            loss_l1 = i*beta*torch.abs(torch.sum(attr, [1,2,3]) - n).mean()
+        else:
+            loss_l1 = torch.tensor(0).to(device)
+
+        if binary and i >= threshold:
+            loss_force = i*beta*torch.mul(attr, 1 - attr).mean(0).sum()
+        else:
+            loss_force = torch.tensor(0).to(device)
+        loss = loss_l1 + loss_force
+
+        new_attr = attr.expand(*inp.shape)
+
+        loss_pre = torch.tensor(0).to(device)
+        loss_del = torch.tensor(0).to(device)
+        
+        if mode == "preservation" or mode == "hybrid":
+            input_pre = torch.mul(inp, new_attr) + torch.mul(reference, 1 - new_attr)
+            out_pre = model(input_pre)
+            loss_pre = -out_pre[:,target].mean()
+            if mse:
+                loss_pre = criterion(out_pre[:,target], out[:,target])
+        if mode == "deletion" or mode == "hybrid":
+            input_del = torch.mul(inp, 1 - new_attr) + torch.mul(reference, new_attr)
+            out_del = model(input_del)
+            loss_del = out_del[:,target].mean()
+
+
+
+        loss = loss + loss_pre + loss_del
+
+
+        optimizer.zero_grad()
+        loss.backward()
+
+        optimizer.step()
+        scheduler.step()
+
+        ind_attr.data.clamp_(0,1)
+        print("epoch {}, loss: {:.4f}, loss l1:{:.4f}, loss force:{:.4f}, loss pre:{:.4f}, loss del:{:.4f}".format(str(i), loss.item(), loss_l1.item(), loss_force.item(),  loss_pre.item(), loss_del.item()))
+    wrapped_model.remove_bhooks()
+    
+    return ind_attr.detach()
+
+
+
+
+
 
 
 
@@ -302,7 +420,8 @@ def generate_attr(wrapped_model, inp, target, area, attr = None, mode = "preserv
         device = "cpu"
     model = wrapped_model.model
     if mse:
-        out = model(inp)
+        with torch.no_grad():
+            out = model(inp)
         criterion = torch.nn.MSELoss()
 
 
@@ -462,17 +581,17 @@ def generate_attr_all(wrapped_model, inp, target, attr = None, mode = "preservat
 
 
 def channel_visualize_image(model, inp, target, defense_mode = "IBM",  lr = 0.1, epochs = 100, save_dir = None):
+
+    wrapped_model = Wrapper(model, defense_mode)
+
+    wrapped_model.pre_defense(inp, start = 25)
+
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-
-    wrapped_model = Wrapper(model, defense_mode)
-
-    wrapped_model.pre_defense(inp, start = 25)
-
     model = wrapped_model.model
 
     inp = inp.to(device)
@@ -564,10 +683,7 @@ def image_recover(model, inp, target, defense_mode = "IBM",  lr = 0.1, epochs = 
 
 
 
-
-
-
-def channel_attr(model, inp, target, img, area_mode = "ensemble", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = torch.zeros_like,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, area_as_ratio = False, areas = None):
+def channel_local_act(model, inp, channel, block_size,reference_func = torch.zeros_like, batch = 512):
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -575,6 +691,78 @@ def channel_attr(model, inp, target, img, area_mode = "ensemble", defense_mode =
     else:
         device = "cpu"
 
+    if isinstance(block_size, int):
+        block_size = (block_size,block_size)
+    B,C,H,W=inp.shape
+    h,w = block_size
+    end_x = H-h+1
+    end_y = W-w+1
+    perturbed = []
+    masks = []
+    inp = inp
+    reference = reference_func(inp)
+    sals = 0
+    for i in  range(0,end_x):
+        for j in range(0,end_y):
+            mask = torch.zeros(B,1,H,W).to(device)
+            mask[:,:,i:i+h,j:j+w] = 1
+            perturbed.append(inp*mask + reference*(1-mask))
+            masks.append(mask)
+            if len(perturbed) == batch:
+                perturbed = torch.cat(perturbed, 0)
+                masks = torch.cat(masks, 0)
+                with torch.no_grad():
+                    #for i in range(0,N, batch):
+                    weights = model(perturbed)[:,channel].sum(-1).sum(-1)
+                    b = weights.shape[0]
+                    weights = weights.view(1,b)
+                    masks = masks.view(b, -1)
+                    sal = torch.matmul(weights, masks).cpu()
+                    sal = sal.view(-1,1,H,W)
+                    sals+=sal
+                perturbed = []
+                masks = []
+    if len(perturbed) > 0:
+        perturbed = torch.cat(perturbed, 0)
+        masks = torch.cat(masks, 0)
+        with torch.no_grad():
+            #for i in range(0,N, batch):
+            weights = model(perturbed)[:,channel].sum(-1).sum(-1)
+            b = weights.shape[0]
+            weights = weights.view(1,b)
+            masks = masks.view(b, -1)
+            sal = torch.matmul(weights, masks).cpu()
+            sal = sal.view(-1,1,H,W)
+            sals+=sal
+    return sals.to(device)
+            #print(perturbed)
+    #perturbed = torch.cat(perturbed, 0)
+    #masks = torch.cat(masks, 0)
+    #N = perturbed.shape[0]
+    #with torch.no_grad():
+    #    for i in range(0,N, batch):
+    #        weights = model(perturbed[i:min(i+batch,N)].to(device))[:,channel].sum(-1).sum(-1)
+    #sal = torch.matmul(weights.transpose(), masks.to(device))
+
+
+
+
+
+
+
+
+
+
+
+
+def channel_attr(model, inp, target, img, area_mode = "ensemble", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = torch.zeros_like,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, area_as_ratio = False, areas = None):
+
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
     for param in model.parameters():
         param.requires_grad = False
 
@@ -603,13 +791,13 @@ def channel_attr(model, inp, target, img, area_mode = "ensemble", defense_mode =
 
 
 def channel_visualize(model, inp, target, area_mode = "ensemble", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = torch.zeros_like,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, area_as_ratio = True):
+
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-
     for param in model.parameters():
         param.requires_grad = False
 
@@ -634,19 +822,20 @@ def channel_visualize(model, inp, target, area_mode = "ensemble", defense_mode =
 
 
 def channel_visualize_ensemble(model, inp, target, area_mode = "ensemble", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = torch.zeros_like,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, area_as_ratio = True, areas = None, mse = False):
+
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-
     for param in model.parameters():
         param.requires_grad = False
 
     wrapped_model = Wrapper(model, defense_mode)
 
-    wrapped_model.pre_defense(inp, end = 29)
+    #wrapped_model.pre_defense(inp, end = 29)
+    wrapped_model.pre_defense(inp)
 
     #with torch.no_grad():
     if areas is None:
@@ -674,13 +863,13 @@ def channel_visualize_ensemble(model, inp, target, area_mode = "ensemble", defen
 
 
 def explain_fractiles(model, inp, target, mode = "preservation", area_mode = "ensemble", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = get_random_reference,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, areas = None):
+
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-
     for param in model.parameters():
         param.requires_grad = False
 
@@ -714,6 +903,69 @@ def explain_fractiles(model, inp, target, mode = "preservation", area_mode = "en
 
 
 
+def explain_channel_ind(model, inp, target, channel_attr, area_mode = "l1", defense_mode = "NONE", shape = None, lr = 0.01, epochs = 100, beta = 1e-6, reference_func = torch.zeros_like,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, areas = None):
+
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
+    for param in model.parameters():
+        param.requires_grad = False
+
+    wrapped_model = Wrapper(model, defense_mode)
+
+    wrapped_model.pre_defense(inp)
+
+
+    if area_mode == "ensemble":
+        if areas is None:
+            areas = [0.1, 0.3, 0.5, 0.7, 0.9]
+        attr = torch.zeros(1,1,224,224).to(device)
+        cur_attr = torch.rand(1,1,224,224).to(device)
+        for area in areas:
+            if restart:
+                cur_attr = generate_attr_channel_ind(wrapped_model, inp, target, area, chanenl_attr, attr = torch.zeros_like(cur_attr), defense_mode = defense_mode, shape = shape, lr = lr, epochs = epochs, beta = beta, reference_func = reference_func, binary = binary, threshold = threshold)
+            else:
+                cur_attr = generate_attr_channel_ind(wrapped_model, inp, target, area, channel_attr, attr = cur_attr, defense_mode = defense_mode, shape = shape, lr = lr, epochs = epochs, beta = beta, reference_func = reference_func, binary = binary, threshold = threshold)
+            if visualize:
+                utils.visualize_attr(inp, cur_attr, "ensemble_{}".format(str(area)), save_dir)
+            attr += cur_attr
+        attr = attr/5
+        #attr = generate_attr(img, wrapped_model, 0, config, cur_attr)
+        if visualize:
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            utils.visualize_attr(inp, cur_attr, "ensemble_sum", save_dir)
+    elif area_mode == "l1":
+        #attr = torch.zeros(1,1,224,224).to(device)
+        attr = generate_attr_channel_ind(wrapped_model, inp, target, 0,channel_attr, attr = None, defense_mode = defense_mode, shape = shape, lr = lr, epochs = epochs, beta = beta, reference_func = reference_func,  binary = binary, threshold = threshold)
+        if visualize:
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            utils.visualize_attr(inp, attr, "l1", save_dir)
+    elif area_mode == "none":
+        attr = torch.zeros(1,1,224,224).to(device)
+        attr = generate_attr_channel_ind(wrapped_model, inp, target, 0, channel_attr, attr, defense_mode = defense_mode, shape = shape, lr = lr, epochs = epochs, beta = beta, reference_func = reference_func,  binary = binary, threshold = threshold, area_regulation = False)
+        if visualize:
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            utils.visualize_attr(inp, attr, "ensemble_none", save_dir)
+
+
+    wrapped_model.remove_hook()
+    return attr
+
+
+
+
+
+
+    
+
+
+
     
 
 
@@ -724,13 +976,13 @@ def explain_fractiles(model, inp, target, mode = "preservation", area_mode = "en
 
 
 def explain(model, inp, target, area_mode = "ensemble", defense_mode = "IBM", shape = None, lr = 0.01, epochs = 100, beta = 1e-2, reference_func = get_random_reference,  binary = False, threshold = None, visualize = False, save_dir = "./result", restart = False, areas = None):
+
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-
     for param in model.parameters():
         param.requires_grad = False
 

@@ -236,13 +236,15 @@ class GUI():
         ind_.grid(row = 2, column = 6, columnspan = 1)
         category_ = ttk.Radiobutton(self.datamodeframe, text = "Model Category", variable = self.ind, value = False)
         category_.grid(row = 2, column = 7, padx = 10, columnspan = 1)
-        self.channelbutton = ttk.Button(self.autochannelframe, text="compute salient channels", command = lambda : Thread(target=self.channel_attr).start())
+        self.channelbutton = ttk.Button(self.autochannelframe, text="Compute Salient Channels", command = lambda : Thread(target=self.channel_attr).start())
         self.channelbutton.grid(column = 6, row = 4,pady = 10, columnspan = 3)
+        self.spatialbutton = ttk.Button(self.autochannelframe, text="Update channel spatial", command = lambda : Thread(target=self.ind_attr).start())
+        self.spatialbutton.grid(column = 6, row = 5,pady = 0, columnspan = 3)
         self.channel_msg = ttk.Label(self.autochannelframe, text="")
-        self.channel_msg.grid(column = 6, row = 5, columnspan = 1)
+        self.channel_msg.grid(column = 6, row = 7, columnspan = 1)
 
 
-        self.custom_channel=tk.StringVar()
+        self.custom_channel=tk.IntVar()
         self.Entrylabel = ttk.Label(self.channelframe, text = 'Channel')
         self.Entrylabel.grid(column = 6, row =3, padx = 2, sticky = tk.E)
         self.channelEntry = ttk.Entry(self.channelframe, textvariable = self.custom_channel, width = 5)
@@ -252,7 +254,7 @@ class GUI():
         self.clearbutton = ttk.Button(self.channelframe, text = "Clear",command = self.clear_channel)
         self.clearbutton.grid(column = 9, row =3, padx = 2, sticky = tk.W)
         self.add_channel_msg = ttk.Label(self.channelframe, text="")
-        self.add_channel_msg.grid(column = 9, row = 5, columnspan = 1)
+        self.add_channel_msg.grid(column = 6, row = 5, columnspan = 1)
 
 
         self.listbox = tk.Listbox(self.window, width = 30, selectmode = "single")
@@ -264,16 +266,36 @@ class GUI():
         self.listbox.config(yscrollcommand = self.listscroll.set)
         self.listscroll.grid(column = 8, row = 4, sticky = "nes")
 
+
+
+        self.block_var=tk.IntVar()
+        self.block_var.set(3)
+        self.localframe = ttk.LabelFrame(self.window, text = "Channel Local Visualization")
+        self.localframe.grid(column = 7, row = 5, padx = 0, pady = 0,sticky = tk.W, columnspan = 2)
+
+        self.blocklabel = ttk.Label(self.localframe, text = 'block size')
+        self.blocklabel.grid(column = 7, row =6, padx = 2, sticky = tk.E)
+
+        self.blockEntry = ttk.Entry(self.localframe, textvariable = self.block_var, width = 5)
+        self.blockEntry.grid(column = 8, row =6,padx = 2, sticky = tk.W)
+
+        self.localbutton = ttk.Button(self.localframe, text = "local visualization",command = lambda : Thread(target=self.channel_local).start())
+        self.localbutton.grid(column = 9, row = 6, sticky = tk.W)
+        self.local_msg = ttk.Label(self.localframe, text="")
+        self.local_msg.grid(column = 7, row = 7, columnspan = 1)
+
+
+
         self.savebutton = ttk.Button(self.window, text = "Save",command = self.save)
         self.savebutton.grid(column = 8, row = 7, sticky = tk.W)
 
         self.target = tk.Label(self.modelframe, text = "")
         self.target.grid(row = 1, column = 3, stick = tk.W, columnspan = 2)
 
-
-        if hasattr(self, "base_width"):
-            del self.base_width
-            del self.base_height
+        self.mid_max = {}
+        #if hasattr(self, "base_width"):
+        #    del self.base_width
+        #    del self.base_height
         self.fix_shape = False
         self.selected = False
         self.show = False
@@ -324,6 +346,9 @@ class GUI():
         if hasattr(self, "model_inp"):
             with torch.no_grad():
                 self.mid = self.submodel1(self.model_inp)
+                if not self.selected:
+                    self.ori_mid = self.submodel1(self.ori_inp)
+                    self.mid_max[self.model_cut] = self.ori_mid.max(-1)[0].max(-1)[0]+1
                 self.max_channel =  self.mid.shape[1]
             if self.display_channel_:
                 self.display_channel()
@@ -352,6 +377,11 @@ class GUI():
             with torch.no_grad():
                 if hasattr(self, "submodel1"):
                     self.mid = self.submodel1(self.model_inp)
+                    if not self.selected:
+                        self.ori_mid = self.submodel1(self.ori_inp)
+                        self.mid_max[self.model_cut] = self.ori_mid.max(-1)[0].max(-1)[0]+1
+
+
                     self.max_channel =  self.mid.shape[1]
                     model_target = self.submodel2(self.mid).max(1)[1]
                     if self.display_channel_:
@@ -415,6 +445,59 @@ class GUI():
         #self.target.config(text = "Model Prediction: " + get_class_name(category.item()))
 
 
+    def ind_attr(self):
+        if not hasattr(self,"mid_attr"):
+            #if hasattr(self, "channel_msg"):
+            self.channel_msg.config(text = "Salient channels not computed")
+            return
+        if not hasattr(self,"ori_inp"):
+            #if hasattr(self, "channel_msg"):
+            self.channel_msg.config(text = "Input Image not loaded")
+            return
+        if not self.model_loaded:
+            #if hasattr(self, "channel_msg"):
+            self.channel_msg.config(text = "Model not loaded")
+            return
+
+        if not hasattr(self,"submodel1"):
+            self.channel_msg.config(text = "Model Cut point not selected")
+            return
+        if not hasattr(self,"train_data") and not self.ind.get():
+            self.channel_msg.config(text = "Input dataset not loaded")
+            return
+        if not hasattr(self,"train_data") and not self.ind.get():
+            self.channel_msg.config(text = "Input dataset not loaded")
+            return
+        #if hasattr(self, "channel_msg"):
+        #self.channel_msg.destroy()
+        self.spatialbutton.config(state = tk.DISABLED)
+        self.channel_msg.config(text = "Computing...")
+
+
+        with torch.no_grad():
+            #self.mid = self.submodel1(self.model_inp)
+            mid = self.submodel1(self.ori_inp)
+            model_target = self.submodel2(mid).max(1)[1]
+
+
+        channel_attr = torch.zeros_like(self.mid)
+        #print(self.mid_attr)
+
+        channel_attr[:,self.mid_attr] = 1
+
+        self.mid_spatial_attr = explain_channel_ind(self.submodel2, mid, model_target, channel_attr = channel_attr, beta = 1e-1)
+        self.channel_msg.config(text = "Done...")
+        #print(self.mid.shape)
+        #print(self.mid[:,self.channel])
+        self.mid = self.mid_spatial_attr*self.mid
+        #print(self.mid_spatial_attr)
+        #print(self.mid_spatial_attr[:,self.channel])
+        #print(self.mid.shape)
+        #print(self.mid[:,self.channel])
+        self.spatialbutton.config(state = tk.NORMAL)
+        if self.display_channel_:
+            self.display_channel()
+
 
     def channel_attr(self):
         if not hasattr(self,"ori_inp"):
@@ -475,9 +558,13 @@ class GUI():
             mid = torch.cat(mids)
 
 
-        mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get())
+            mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get())
+        else:
+            mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get(),threshold = True,heuristic ="softmax")
+
         self.channel_msg.config(text = "Done!")
         self.listbox.delete(0, tk.END)
+        self.mid_attr = mid_attr
         for attr in mid_attr:
             self.listbox.insert(tk.END, attr)
         self.channelbutton.config(state = tk.NORMAL)
@@ -499,10 +586,48 @@ class GUI():
         self.channel_canvas.delete("all")
         self.listbox.delete(0,tk.END)
 
+    def channel_local(self):
+        if not hasattr(self,"ori_inp"):
+            self.local_msg.config(text = "Input Image not loaded")
+            return
+        if not self.model_loaded:
+            self.local_msg.config(text = "Model not loaded")
+            return
+        if not hasattr(self,"submodel1"):
+            self.local_msg.config(text = "Model Cut point not selected")
+            return
+        block_size = self.block_var.get()
+        if block_size > 224 or block_size <= 0:
+            self.local_msg.config(text = "Block size not supported")
+            return
+
+        self.localbutton.config(state = tk.DISABLED)
+        #if not hasattr(self, "mid"):
+        #    return
+        global heat_photo
+        self.local_msg.config(text = "Computing....")
+        attr = channel_local_act(self.submodel1,self.ori_inp,self.channel,block_size=block_size,batch = 512)
+        max_val = self.mid_max[self.model_cut][:,self.channel]
+        self.local_msg.config(text = "done")
+        display_value = attr/max_val*255
+        upsample = torch.nn.Upsample(300, mode = "bilinear")
+        display_value = upsample(display_value).cpu().detach().numpy()
+        display_value = np.transpose(display_value, (0, 2, 3, 1)).squeeze()
+        #heatmap = cv2.applyColorMap(display_value, cv2.COLORMAP_JET)
+
+        #overlay = cv2.addWeighted(heatmap, 0.6, np.array(self.img.resize((300,300))), 0.4, 0)
+        self.act_img= Image.fromarray(display_value)
+        heat_photo = ImageTk.PhotoImage(self.act_img)
+    
+        self.listbox.select_set(self.channel)
+        self.img_canvas.delete("all")
+        self.img_canvas.create_image(0,0, anchor =tk.NW, image = heat_photo)
+        self.localbutton.config(state = tk.NORMAL)
+
+
     def channelonselect(self,event):
         if not hasattr(self, "mid"):
             return
-        global act_photo
         w = event.widget
         index = w.curselection()
         if index:
@@ -517,7 +642,9 @@ class GUI():
             return
         self.display_channel_ = True
         #if value in 
-        display_value = 100*self.mid[:,self.channel].unsqueeze(1)
+        display_value = self.mid[:,self.channel].unsqueeze(1)
+        max_val = self.mid_max[self.model_cut][:,self.channel]
+        display_value = display_value/max_val*255
         upsample = torch.nn.Upsample(300, mode = "bilinear")
         display_value = upsample(display_value).cpu().detach().numpy()
         #self.act[value] = display_value
@@ -533,6 +660,7 @@ class GUI():
     def show_img(self,event):
         global show_photo
         
+        self.mid_max = {}
         self.img_canvas.unbind('<Motion>')
         self.img_canvas.unbind("<ButtonPress-1>")
         self.img_canvas.unbind("<B1-Motion>")
@@ -566,6 +694,8 @@ class GUI():
             with torch.no_grad():
                 if hasattr(self, "submodel1"):
                     self.mid = self.submodel1(self.model_inp)
+                    self.ori_mid = self.submodel1(self.ori_inp)
+                    self.mid_max[self.model_cut] = self.ori_mid.max(-1)[0].max(-1)[0]+1
                     self.max_channel =  self.mid.shape[1]
                     model_target = self.submodel2(self.mid).max(1)[1]
                     if self.display_channel_:
@@ -604,6 +734,7 @@ class GUI():
             del self.model_inp
             del self.ori_inp
         if hasattr(self, "mid"):
+            del self.mid_attr
             del self.mid
             del self.max_channel
         if hasattr(self, "dim_img"):
@@ -615,6 +746,7 @@ class GUI():
             del self.rect
 
     def refresh(self):
+        self.mid_max = {}
         if hasattr(self, "base_width"):
             del self.base_width
             del self.base_height
@@ -649,6 +781,8 @@ class GUI():
                 with torch.no_grad():
                     if hasattr(self, "submodel1"):
                         self.mid = self.submodel1(self.model_inp)
+                        self.ori_mid = self.submodel1(self.ori_inp)
+                        self.mid_max[self.model_cut] = self.ori_mid.max(-1)[0].max(-1)[0]+1
                         self.max_channel =  self.mid.shape[1]
                         model_target = self.submodel2(self.mid).max(1)[1]
                         if self.display_channel_:
@@ -774,6 +908,8 @@ class GUI():
             with torch.no_grad():
                 if hasattr(self, "submodel1"):
                     self.mid = self.submodel1(self.model_inp)
+                    self.ori_mid = self.submodel1(self.ori_inp)
+                    self.mid_max[self.model_cut] = self.ori_mid.max(-1)[0].max(-1)[0]+1
                     self.max_channel =  self.mid.shape[1]
                     model_target = self.submodel2(self.mid).max(1)[1]
                     if self.display_channel_:
@@ -872,8 +1008,8 @@ class GUI():
                 return
             if self.selected:
                 self.fix_shape = True
-                self.base_width = cur_x - self.start_x
-                self.base_height = cur_y - self.start_y
+                self.base_width = abs(cur_x - self.start_x)
+                self.base_height = abs(cur_y - self.start_y)
         else:
 
             self.start_x = event1.x
@@ -941,11 +1077,11 @@ class GUI():
             self.end_y = self.start_y + abs(y_diff)*y_sign
         if self.end_y > self.start_y and self.end_y > 300:
             self.end_y = 300
-            x_diff = (300-self.start_y)/self.base_width*self.base_height
+            x_diff = (300-self.start_y)/self.base_height*self.base_width
             self.end_x = self.start_x + abs(x_diff)*x_sign
         elif self.end_y < self.start_y and self.end_y <=0:
             self.end_y = 0
-            x_diff = (0-self.start_y)/self.base_width*self.base_height
+            x_diff = (0-self.start_y)/self.base_height*self.base_width
             self.end_x = self.start_x + abs(x_diff)*x_sign
 
 
