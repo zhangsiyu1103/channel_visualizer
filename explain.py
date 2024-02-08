@@ -683,7 +683,7 @@ def image_recover(model, inp, target, defense_mode = "IBM",  lr = 0.1, epochs = 
 
 
 
-def channel_local_act(model, inp, channel, block_size,reference_func = torch.zeros_like, batch = 512):
+def channel_local_act(model, inp, channel, block_size,stride_size = 1, reference_func = torch.zeros_like, batch = 512):
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -693,8 +693,11 @@ def channel_local_act(model, inp, channel, block_size,reference_func = torch.zer
 
     if isinstance(block_size, int):
         block_size = (block_size,block_size)
+    if isinstance(stride_size, int):
+        stride_size = (stride_size,stride_size)
     B,C,H,W=inp.shape
     h,w = block_size
+    dh,dw = stride_size
     end_x = H-h+1
     end_y = W-w+1
     perturbed = []
@@ -702,8 +705,8 @@ def channel_local_act(model, inp, channel, block_size,reference_func = torch.zer
     inp = inp
     reference = reference_func(inp)
     sals = 0
-    for i in  range(0,end_x):
-        for j in range(0,end_y):
+    for i in  range(0,end_x, dh):
+        for j in range(0,end_y,dw):
             mask = torch.zeros(B,1,H,W).to(device)
             mask[:,:,i:i+h,j:j+w] = 1
             perturbed.append(inp*mask + reference*(1-mask))

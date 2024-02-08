@@ -12,7 +12,9 @@ from wrapper import Wrapper
 from torchvision import transforms, datasets, models
 from torch.utils.data import DataLoader
 from explain import *
+from rise import *
 from scipy.ndimage import gaussian_filter
+
 #def display_roi(event):
 #    global selected_photo
 #
@@ -270,21 +272,35 @@ class GUI():
 
         self.block_var=tk.IntVar()
         self.block_var.set(3)
+        self.stride_var=tk.IntVar()
+        self.stride_var.set(1)
         self.localframe = ttk.LabelFrame(self.window, text = "Channel Local Visualization")
-        self.localframe.grid(column = 7, row = 5, padx = 0, pady = 0,sticky = tk.W, columnspan = 2)
+        self.localframe.grid(column = 7, row = 5, padx = 0, pady = 0,sticky = tk.W, columnspan = 3)
 
         self.blocklabel = ttk.Label(self.localframe, text = 'block size')
-        self.blocklabel.grid(column = 7, row =6, padx = 2, sticky = tk.E)
+        self.blocklabel.grid(column = 7, row =6, padx = 0, sticky = tk.W)
 
-        self.blockEntry = ttk.Entry(self.localframe, textvariable = self.block_var, width = 5)
-        self.blockEntry.grid(column = 8, row =6,padx = 2, sticky = tk.W)
+        self.blockEntry = ttk.Entry(self.localframe, textvariable = self.block_var,width = 4)
+        self.blockEntry.grid(column = 8, row =6,padx = 0, sticky = tk.W)
 
+        self.stridelabel = ttk.Label(self.localframe, text = 'stride')
+        self.stridelabel.grid(column = 9, row =6, padx = 3, sticky = tk.E)
+
+        self.strideEntry = ttk.Entry(self.localframe, textvariable = self.stride_var,width = 4)
+        self.strideEntry.grid(column = 10, row =6,padx = 0, sticky = tk.W)
+
+        self.risebutton = ttk.Button(self.localframe, text = "rise",command = lambda : Thread(target=self.rise).start())
+        self.risebutton.grid(column = 7, row = 7, padx = 2,sticky = tk.W,columnspan = 1)
         self.localbutton = ttk.Button(self.localframe, text = "local visualization",command = lambda : Thread(target=self.channel_local).start())
-        self.localbutton.grid(column = 9, row = 6, sticky = tk.W)
+        self.localbutton.grid(column = 8, row = 7, sticky = tk.W,columnspan = 3)
         self.local_msg = ttk.Label(self.localframe, text="")
-        self.local_msg.grid(column = 7, row = 7, columnspan = 1)
+        self.local_msg.grid(column = 7, row = 8, columnspan = 3)
 
 
+        self.overlaybutton = ttk.Button(self.window, text = "Overlay", command = self.overlay)
+        self.overlaybutton.grid(column = 1,row = 2, sticky = tk.W, columnspan = 1)
+        self.separatebutton = ttk.Button(self.window, text = "Separate", command = self.separate)
+        self.separatebutton.grid(column = 2,row = 2, padx=2,sticky = tk.W, columnspan = 1)
 
         self.savebutton = ttk.Button(self.window, text = "Save",command = self.save)
         self.savebutton.grid(column = 8, row = 7, sticky = tk.W)
@@ -579,12 +595,99 @@ class GUI():
         if self.custom_channel.get() < 0 or self.custom_channel.get() >= self.max_channel:
             self.add_channel_msg.config(text = "Channel out of range")
             return
-        self.listbox.insert(tk.END, int(self.custom_channel.get()))
+        self.listbox.insert(tk.END, int(self.custom_chagnnel.get()))
+
+
+
+
     def clear_channel(self):
         self.display_channel_ = False
         self.channel = None
         self.channel_canvas.delete("all")
         self.listbox.delete(0,tk.END)
+
+    def separate(self):
+        if not hasattr(self, "overlay_img"):
+            return
+        if not hasattr(self, "heat_img"):
+            return
+        global heat_photo
+        self.separatebutton.config(state = tk.DISABLED)
+        heat_photo = ImageTk.PhotoImage(self.heat_img)
+    
+        self.listbox.select_set(self.channel)
+        self.img_canvas.delete("all")
+        self.img_canvas.create_image(0,0, anchor =tk.NW, image = heat_photo)
+        self.separatebutton.config(state = tk.NORMAL)
+
+
+
+
+    def overlay(self):
+        if not hasattr(self, "heat_img"):
+            return
+        if not hasattr(self, "img"):
+            return
+        global overlay_photo
+        self.overlaybutton.config(state = tk.DISABLED)
+        heatmap = cv2.applyColorMap(255-np.array(self.heat_img).astype(np.uint8), cv2.COLORMAP_JET)
+        #heatmap = cv2.applyColorMap(np.array(self.heat_img), cv2.COLORMAP_JET)
+
+
+        #overlay = heatmap
+        #overlay = cv2.addWeighted(heatmap, 0.6, np.array(self.img.resize((300,300))), 0.4, 0)
+        overlay = cv2.addWeighted(heatmap, 0.5, np.array(self.img.resize((300,300))).astype(np.uint8), 0.5, 0)
+        self.overlay_img= Image.fromarray(overlay)
+        overlay_photo = ImageTk.PhotoImage(self.overlay_img)
+    
+        self.listbox.select_set(self.channel)
+        self.img_canvas.delete("all")
+        self.img_canvas.create_image(0,0, anchor =tk.NW, image = overlay_photo)
+        self.overlaybutton.config(state = tk.NORMAL)
+
+    def rise(self): 
+        if not hasattr(self,"ori_inp"):
+            self.local_msg.config(text = "Input Image not loaded")
+            return
+        if not self.model_loaded:
+            self.local_msg.config(text = "Model not loaded")
+            return
+        if not hasattr(self,"submodel1"):
+            self.local_msg.config(text = "Model Cut point not selected")
+            return
+        self.risebutton.config(state = tk.DISABLED)
+        #print(torch.cuda.mem_get_info())
+        if not hasattr(self,"explainer"):
+            self.explainer = RISE(self.submodel1,(224,224),gpu_batch = 256)
+            self.explainer.generate_masks(N=5000, s=7, p1=0.1)
+        #if not hasattr(self, "mid"):
+        #    return
+        global heat_photo
+        self.local_msg.config(text = "Computing....")
+        #print(torch.cuda.mem_get_info())
+        attr = self.explainer(self.ori_inp, self.channel)
+        #max_val = self.mid_max[self.model_cut][:,self.channel]
+        self.local_msg.config(text = "done")
+        #print(attr.min())
+        #print(attr.max())
+        display_value = attr/attr.max()*255
+        upsample = torch.nn.Upsample(300, mode = "bilinear")
+        display_value = upsample(display_value).cpu().detach().numpy()
+        display_value = np.transpose(display_value, (0, 2, 3, 1)).squeeze().astype(np.uint8)
+        #heatmap = cv2.applyColorMap(display_value, cv2.COLORMAP_JET)
+
+        #overlay = cv2.addWeighted(heatmap, 0.6, np.array(self.img.resize((300,300))), 0.4, 0)
+        self.heat_img= Image.fromarray(display_value)
+        heat_photo = ImageTk.PhotoImage(self.heat_img)
+    
+        self.listbox.select_set(self.channel)
+        self.img_canvas.delete("all")
+        self.img_canvas.create_image(0,0, anchor =tk.NW, image = heat_photo)
+        self.risebutton.config(state = tk.NORMAL)
+
+
+
+
 
     def channel_local(self):
         if not hasattr(self,"ori_inp"):
@@ -600,24 +703,30 @@ class GUI():
         if block_size > 224 or block_size <= 0:
             self.local_msg.config(text = "Block size not supported")
             return
+        stride_size = self.stride_var.get()
+        if stride_size > block_size or stride_size <= 0:
+            self.local_msg.config(text = "Stride size not supported")
+            return
 
         self.localbutton.config(state = tk.DISABLED)
         #if not hasattr(self, "mid"):
         #    return
         global heat_photo
         self.local_msg.config(text = "Computing....")
-        attr = channel_local_act(self.submodel1,self.ori_inp,self.channel,block_size=block_size,batch = 512)
-        max_val = self.mid_max[self.model_cut][:,self.channel]
+        attr = channel_local_act(self.submodel1,self.ori_inp,self.channel,block_size=block_size,stride_size = stride_size, batch = 512)
+        #max_val = self.mid_max[self.model_cut][:,self.channel]
+        #print(attr.min())
+        #print(attr.max())
         self.local_msg.config(text = "done")
-        display_value = attr/max_val*255
+        display_value = attr/attr.max()*255
         upsample = torch.nn.Upsample(300, mode = "bilinear")
         display_value = upsample(display_value).cpu().detach().numpy()
-        display_value = np.transpose(display_value, (0, 2, 3, 1)).squeeze()
+        display_value = np.transpose(display_value, (0, 2, 3, 1)).squeeze().astype(np.uint8)
         #heatmap = cv2.applyColorMap(display_value, cv2.COLORMAP_JET)
 
         #overlay = cv2.addWeighted(heatmap, 0.6, np.array(self.img.resize((300,300))), 0.4, 0)
-        self.act_img= Image.fromarray(display_value)
-        heat_photo = ImageTk.PhotoImage(self.act_img)
+        self.heat_img= Image.fromarray(display_value)
+        heat_photo = ImageTk.PhotoImage(self.heat_img)
     
         self.listbox.select_set(self.channel)
         self.img_canvas.delete("all")
