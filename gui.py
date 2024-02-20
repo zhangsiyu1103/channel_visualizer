@@ -7,6 +7,8 @@ from tkinter import filedialog
 import os
 import numpy as np
 import torch
+import json
+
 
 from wrapper import Wrapper
 from torchvision import transforms, datasets, models
@@ -197,14 +199,14 @@ class GUI():
         self.modelframe.grid(column = 3, row = 0, padx = 30, pady = 20,sticky = tk.W, columnspan = 1)
         self.modelcombo = ttk.Combobox(self.modelframe, state = "readonly", values = ["vgg16","vgg19","resnet18","resnet34"], width = 10)
         self.modelcombo.grid(column =3,row = 0,sticky = tk.W)
-        self.modelcombo.bind("<<ComboboxSelected>>",lambda e: Thread(target=self.model_selection_change, args = (e,)).start())
+        self.modelcombo.bind("<<ComboboxSelected>>",self.model_selection_change)
 
 
         self.modelcutframe = ttk.LabelFrame(self.window, text = "Select model cut")
         self.modelcutframe.grid(column = 4, row = 0, padx = 10, pady = 20,sticky = tk.W, columnspan = 1)
         self.modelcutcombo = ttk.Combobox(self.modelcutframe, state = "readonly", values = [])
         self.modelcutcombo.grid(column =4,row = 0,sticky = tk.W)
-        self.modelcutcombo.bind("<<ComboboxSelected>>",lambda e: Thread(target=self.model_divide_change, args = (e,)).start())
+        self.modelcutcombo.bind("<<ComboboxSelected>>",self.model_divide_change)
 
 
         self.datasetframe = ttk.LabelFrame(self.dataframe, text = "Load Dataset")
@@ -332,8 +334,11 @@ class GUI():
         self.separatebutton = ttk.Button(self.window, text = "Separate", command = self.separate)
         self.separatebutton.grid(column = 2,row = 2, padx=2,sticky = tk.W, columnspan = 1)
 
-        self.savebutton = ttk.Button(self.window, text = "Save",command = self.save)
-        self.savebutton.grid(column = 8, row = 7, sticky = tk.W)
+        self.savebutton = ttk.Button(self.window, text = "Save Config",command = self.save_config)
+        self.savebutton.grid(column = 7, row = 7, padx = 5, sticky = tk.W)
+
+        self.loadbutton = ttk.Button(self.window, text = "Load Config",command = self.load_config)
+        self.loadbutton.grid(column = 8, row = 7, sticky = tk.W)
 
         self.target = tk.Label(self.modelframe, text = "")
         self.target.grid(row = 1, column = 3, stick = tk.W, columnspan = 2)
@@ -353,13 +358,57 @@ class GUI():
 
         self.category_data = {"train":dict(), "val":dict()}
 
-    def save(self):
-        filename = filedialog.asksaveasfile(initialfile = "result.jpg", mode='w', title = "Save the file", defaultextension=".jpg")
+    def save_config(self):
+        filename = filedialog.asksaveasfile(initialfile = "config.json", mode='w', title = "Save the file", defaultextension=".json")
         if not filename:
             return
-        ImageGrab.grab().save(filename)
+        config_dict = dict()
+        config_dict["dataset_dir"]  = self.dataset_dir
+        config_dict["model_name"] = self.model_name
+        config_dict["model_cut"] = self.model_cut
+        config_dict["channel_list"] = self.listbox.get(0,tk.END)
+        config_dict["channel_index"] = self.channel_index
+        config_dict["img"] = np.array(self.img).tolist()
+        config_dict["display_channel_"] = self.display_channel_
+        json.dump(config_dict,filename)
 
 
+    def load_config(self):
+        cur_dir = os.getcwd()
+        filename = filedialog.askopenfilename(initialdir =  cur_dir, title = "Select Config", filetypes =
+        [("Json", '*.json'), ("All files", "*.*")])
+        with open(filename) as f:
+            config = json.load(f)
+        if not filename:
+            return
+        self.dataset_dir = config["dataset_dir"]
+        self.model_name = config["model_name"]
+        self.model_cut = config["model_cut"]
+        self.display_channel_ = config["display_channel_"]
+        self.channel_list = config["channel_list"]
+        self.channel_index = config["channel_index"]
+        self.channel = self.channel_list[self.channel_index]
+        self.img = Image.fromarray(np.array(config["img"]).astype("uint8"))
+        self.ori_inp = numpy_to_tensor(np.array(self.img)/255.0)
+
+        self.load_dataset_from_root(self.dataset_dir)
+
+        self.refresh()
+
+        self.insert_display(self.ori_inp)
+        self.modelcombo.set(self.model_name)
+        self.modelcombo.event_generate('<<ComboboxSelected>>')
+
+
+        self.modelcutcombo.set(self.model_cut)
+        self.modelcutcombo.event_generate('<<ComboboxSelected>>')
+
+
+        for channel in self.channel_list:
+            self.listbox.insert(tk.END, channel)
+
+        self.listbox.select_set(self.channel_index)
+        self.listbox.event_generate("<<ListboxSelect>>")
 
 
     def insert_display(self, image):
@@ -384,8 +433,11 @@ class GUI():
 
 
     def model_divide_change(self,event):
-        self.clear_channel()
+        if not self.model_loaded:
+            return
         self.model_cut = self.modelcutcombo.get()
+
+        self.clear_channel()
         
         self.submodel1, self.submodel2 = self.wrapped.divide(self.wrapped.model_cut[self.model_cut])
 
@@ -401,6 +453,7 @@ class GUI():
 
     def model_selection_change(self,event):
         self.model_name = self.modelcombo.get()
+
 
         if self.model_name == "vgg16":
             self.model = models.vgg16(pretrained=True)
@@ -598,8 +651,8 @@ class GUI():
                 inp = inp.to(self.device)
                 tar = tar.to(self.device)
                 mid = self.submodel1(inp)
-                out = self.submodel2(mid).max(1)[1]
-                mid = mid[out==tar]
+                #out = self.submodel2(mid).max(1)[1]
+                #mid = mid[out==tar]
                 mids.append(mid)
             mid = torch.cat(mids)
 
@@ -745,8 +798,8 @@ class GUI():
         wrapped_model.remove_relu_remove_hook()
         wrapped_model.model_recover()
         grad = self.ori_inp.grad
-        print(grad.max())
-        print(grad.min())
+        #print(grad.max())
+        #print(grad.min())
         grad/=grad.max()
         grad*=255 
 
@@ -816,7 +869,7 @@ class GUI():
         self.heat_img= Image.fromarray(display_value)
         heat_photo = ImageTk.PhotoImage(self.heat_img)
     
-        self.listbox.select_set(self.channel)
+        self.listbox.select_set(self.channel_index)
         self.img_canvas.delete("all")
         self.img_canvas.create_image(0,0, anchor =tk.NW, image = heat_photo)
         self.localbutton.config(state = tk.NORMAL)
@@ -831,6 +884,7 @@ class GUI():
         if index:
             index = index[0]
             value = w.get(index)
+            self.channel_index = index
             self.channel = value
             self.display_channel()
         
@@ -1046,6 +1100,11 @@ class GUI():
         if not root:
             self.databutton.config(state = tk.NORMAL)
             return
+        self.dataset_dir = root
+        self.load_dataset_from_root(root)
+        self.databutton.config(state = tk.NORMAL)
+
+    def load_dataset_from_root(self,root):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
         cur_transform = transforms.Compose([
@@ -1065,10 +1124,8 @@ class GUI():
                     cur_transform)
             self.load.config(text = "dataset loaded")
             self.dataset_loaded = True
-            self.databutton.config(state = tk.NORMAL)
         except:
             self.load.config(text = "Wrong category")
-            self.databutton.config(state = tk.NORMAL)
 
     def browse_and_display(self):
         global photo
