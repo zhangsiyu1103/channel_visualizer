@@ -147,6 +147,10 @@ class GUI():
 
         #self.display_canvas.config(xscrollcommand=self.displayscroll.set, scrollregion=self.display_canvas.bbox(tk.ALL))
 
+        self.infolabel = ttk.Label(self.window, text = '')
+        self.infolabel.grid(column = 0, row = 6, columnspan = 3)
+        self.actlabel = ttk.Label(self.window, text = '')
+        self.actlabel.grid(column = 2, row = 6, columnspan = 3)
 
         self.custom_category=tk.StringVar()
         self.Entrylabel = ttk.Label(self.categoryframe, text = 'Category')
@@ -289,12 +293,38 @@ class GUI():
         self.strideEntry = ttk.Entry(self.localframe, textvariable = self.stride_var,width = 4)
         self.strideEntry.grid(column = 10, row =6,padx = 0, sticky = tk.W)
 
-        self.risebutton = ttk.Button(self.localframe, text = "rise",command = lambda : Thread(target=self.rise).start())
-        self.risebutton.grid(column = 7, row = 7, padx = 2,sticky = tk.W,columnspan = 1)
+
+        self.blockbutton = ttk.Button(self.localframe, text = "get blk",command = lambda : Thread(target=self.get_blk).start())
+        self.blockbutton.grid(column = 7, row = 7,pady = 2, sticky = tk.W,columnspan = 1)
         self.localbutton = ttk.Button(self.localframe, text = "local visualization",command = lambda : Thread(target=self.channel_local).start())
-        self.localbutton.grid(column = 8, row = 7, sticky = tk.W,columnspan = 3)
+        self.localbutton.grid(column = 8, row = 7,pady = 2, sticky = tk.W,columnspan = 3)
+
+        self.smin_var=tk.IntVar()
+        self.smin_var.set(3)
+        self.smax_var=tk.IntVar()
+        self.smax_var.set(72)
+        self.p_var=tk.DoubleVar()
+        self.p_var.set(0.1)
+
+        self.sminlabel = ttk.Label(self.localframe, text = 'S min')
+        self.sminlabel.grid(column = 7, row =8, padx = 0, sticky = tk.E)
+        self.sminEntry = ttk.Entry(self.localframe, textvariable = self.smin_var,width = 4)
+        self.sminEntry.grid(column = 8, row =8,padx = 0, sticky = tk.W)
+
+        self.smaxlabel = ttk.Label(self.localframe, text = 'S max')
+        self.smaxlabel.grid(column = 9, row =8, padx = 0, sticky = tk.E)
+        self.smaxEntry = ttk.Entry(self.localframe, textvariable = self.smax_var,width = 4)
+        self.smaxEntry.grid(column = 10, row =8,padx = 0, sticky = tk.W)
+
+        self.plabel = ttk.Label(self.localframe, text = 'p')
+        self.plabel.grid(column = 7, row =9, padx = 0, sticky = tk.E)
+        self.pEntry = ttk.Entry(self.localframe, textvariable = self.p_var,width = 4)
+        self.pEntry.grid(column = 8, row =9,padx = 0, sticky = tk.W)
+        self.risebutton = ttk.Button(self.localframe, text = "rise",command = lambda : Thread(target=self.rise).start())
+        self.risebutton.grid(column = 9, row = 9, padx = 2,pady=2,sticky = tk.W,columnspan = 1)
+
         self.local_msg = ttk.Label(self.localframe, text="")
-        self.local_msg.grid(column = 7, row = 8, columnspan = 3)
+        self.local_msg.grid(column = 7, row = 10, columnspan = 3)
 
 
         self.overlaybutton = ttk.Button(self.window, text = "Overlay", command = self.overlay)
@@ -576,7 +606,8 @@ class GUI():
 
             mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get())
         else:
-            mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get(),threshold = True,heuristic ="softmax")
+            #mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get(),threshold = True,heuristic ="softmax")
+            mid_attr = channel_greedy(self.submodel2, mid, model_target, batch_size = 256, preservation = self.preserved.get(),heuristic ="softmax")
 
         self.channel_msg.config(text = "Done!")
         self.listbox.delete(0, tk.END)
@@ -655,11 +686,16 @@ class GUI():
         if not hasattr(self,"submodel1"):
             self.local_msg.config(text = "Model Cut point not selected")
             return
+
+        if not self.smin_var.get() or not self.smax_var.get() or not self.p_var.get():
+            return
+
         self.risebutton.config(state = tk.DISABLED)
         #print(torch.cuda.mem_get_info())
-        if not hasattr(self,"explainer"):
-            self.explainer = RISE(self.submodel1,(224,224),gpu_batch = 256)
-            self.explainer.generate_masks(N=5000, s=7, p1=0.1)
+        #if not hasattr(self,"explainer"):
+        block_size = self.block_var.get()
+        self.explainer = RISE_SWEEP(self.submodel1, (224,224),gpu_batch = 512)
+        self.explainer.generate_masks(N=10000,s_min = self.smin_var.get(), s_max = self.smax_var.get(), p1 = self.p_var.get())
         #if not hasattr(self, "mid"):
         #    return
         global heat_photo
@@ -687,6 +723,52 @@ class GUI():
 
 
 
+    def get_blk(self):
+        if not hasattr(self,"ori_inp"):
+            return
+        if not hasattr(self,"submodel1"):
+            return
+        self.blockbutton.config(state = tk.DISABLED)
+        self.ori_inp.requires_grad=True
+        wrapped_model  = Wrapper(self.submodel1)
+        wrapped_model.reorder_layers(self.ori_inp)
+        wrapped_model.maxpool_forward(self.ori_inp)
+        wrapped_model.maxpool_fix()
+        wrapped_model.set_const()
+        wrapped_model.set_cur_idx_fix()
+        wrapped_model.relu_remove_hook()
+        mid = self.submodel1(self.ori_inp)
+        out_size = mid.shape[-2:]
+        grad_out = torch.zeros_like(mid)
+        grad_out[0,0,out_size[0]//2,out_size[1]//2] = 100
+        mid.backward(gradient=grad_out)
+        wrapped_model.remove_relu_remove_hook()
+        wrapped_model.model_recover()
+        grad = self.ori_inp.grad
+        print(grad.max())
+        print(grad.min())
+        grad/=grad.max()
+        grad*=255 
+
+        #out = self.submodel1(self.ori_inp)
+        #grad_out = torch.zeros_like(out)
+        #grad = torch.autograd.grad(out,self.ori_inp, grad_outputs= grad_out)[0]
+        global grad_photo
+        upsample = torch.nn.Upsample(300, mode = "bilinear")
+        display_value = upsample(grad).cpu().detach().numpy()
+        display_value = np.transpose(display_value, (0, 2, 3, 1)).squeeze().astype(np.uint8)
+        self.grad_img= Image.fromarray(display_value)
+        grad_photo = ImageTk.PhotoImage(self.grad_img)
+    
+        self.img_canvas.delete("all")
+        self.img_canvas.create_image(0,0, anchor =tk.NW, image = grad_photo)
+        indices = torch.argwhere(grad[0,0])
+        shape = indices.max(0)[0]-indices.min(0)[0]
+        self.actlabel.config(text = "Block_size:{}".format(shape.cpu().numpy()))
+        self.ori_inp.requires_grad=False
+        self.blockbutton.config(state = tk.NORMAL)
+
+
 
 
     def channel_local(self):
@@ -708,12 +790,18 @@ class GUI():
             self.local_msg.config(text = "Stride size not supported")
             return
 
+        if self.bg.get() == "white":
+            ref_func = torch.zeros_like
+        elif self.bg.get() == "noise":
+            ref_func = torch.randn_like
+        elif self.bg.get() == "gauss":
+            ref_func = transforms.GaussianBlur(kernel_size = 11)
         self.localbutton.config(state = tk.DISABLED)
         #if not hasattr(self, "mid"):
         #    return
         global heat_photo
         self.local_msg.config(text = "Computing....")
-        attr = channel_local_act(self.submodel1,self.ori_inp,self.channel,block_size=block_size,stride_size = stride_size, batch = 512)
+        attr,out_max = channel_local_act(self.submodel1,self.ori_inp,self.channel,block_size=block_size,stride_size = stride_size, batch = 512, ref_func = ref_func)
         #max_val = self.mid_max[self.model_cut][:,self.channel]
         #print(attr.min())
         #print(attr.max())
@@ -732,6 +820,7 @@ class GUI():
         self.img_canvas.delete("all")
         self.img_canvas.create_image(0,0, anchor =tk.NW, image = heat_photo)
         self.localbutton.config(state = tk.NORMAL)
+        self.actlabel.config(text = "original act max:{:.2f}, current act max:{:.2f}".format(self.display_max.item(), out_max.item()))
 
 
     def channelonselect(self,event):
@@ -752,6 +841,7 @@ class GUI():
         self.display_channel_ = True
         #if value in 
         display_value = self.mid[:,self.channel].unsqueeze(1)
+        self.display_max = display_value.max()
         max_val = self.mid_max[self.model_cut][:,self.channel]
         display_value = display_value/max_val*255
         upsample = torch.nn.Upsample(300, mode = "bilinear")
@@ -775,6 +865,7 @@ class GUI():
         self.img_canvas.unbind("<B1-Motion>")
         self.img_canvas.unbind("<ButtonRelease-1>")
         #image = event.widget.itemcget(obj, "image")
+        self.infolabel.config(text = "")
         self.img_canvas.delete("all")
         image = event.widget.image
         self.img = image.resize((224,224))
@@ -834,6 +925,7 @@ class GUI():
             del self.base_height
 
         self.display_imgs = []
+        self.infolabel.config(text = "")
         self.displayscroll.config(command = None)
         self.display_canvas.config(height = 120, width = 660)
         self.display_canvas.config(xscrollcommand=None, scrollregion=None)
@@ -868,6 +960,7 @@ class GUI():
         self.img_canvas.unbind("<ButtonPress-1>")
         self.img_canvas.unbind("<B1-Motion>")
         self.img_canvas.unbind("<ButtonRelease-1>")
+        self.infolabel.config(text = "")
         if hasattr(self, "rect"):
             del self.rect
         if hasattr(self, "img"):
@@ -1268,6 +1361,9 @@ class GUI():
         end_x = int(self.end_x/300*224)
         end_y = int(self.end_y/300*224)
 
+        width = end_x - start_x
+        height = end_y - start_y
+        self.infolabel.config(text = "width:{}, height:{}".format(width,height))
 
         self.cur_imselect[int(start_y):int(end_y), int(start_x):int(end_x)] = img_np[int(start_y):int(end_y), int(start_x):int(end_x)]
         self.cur_white_bg[int(start_y):int(end_y), int(start_x):int(end_x)] = img_np[int(start_y):int(end_y), int(start_x):int(end_x)]

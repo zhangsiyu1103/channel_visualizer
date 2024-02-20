@@ -444,7 +444,9 @@ class Wrapper(object):
                 hook.remove()
         self.maxpool_hooks = []
 
-    def set_cur_idx_fix(self, layer):
+    def set_cur_idx_fix(self, layer=None):
+        if layer is None:
+            layer = len(self.order_layers)-1
         maxpool_idx = -1
         relu_idx = -1
         for i in (range(layer+1)):
@@ -480,7 +482,9 @@ class Wrapper(object):
 
 
 
-    def relu_remove_hook(self, idx):
+    def relu_remove_hook(self, idx=None):
+        if idx is None:
+            idx = len(self.order_layers)-1
         def hook(module, grad_inp, grad_out):
             #clip = (torch.randn_like(grad_out[0])>0)
             #return (torch.mul(grad_out[0],clip),)

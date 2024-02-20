@@ -681,9 +681,7 @@ def image_recover(model, inp, target, defense_mode = "IBM",  lr = 0.1, epochs = 
     return rec_inp.detach()
 
 
-
-
-def channel_local_act(model, inp, channel, block_size,stride_size = 1, reference_func = torch.zeros_like, batch = 512):
+def channel_local_act(model, inp, channel, block_size,stride_size = 1, ref_func = torch.zeros_like, batch = 512):
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -698,25 +696,34 @@ def channel_local_act(model, inp, channel, block_size,stride_size = 1, reference
     B,C,H,W=inp.shape
     h,w = block_size
     dh,dw = stride_size
-    end_x = H-h+1
-    end_y = W-w+1
+    #end_x = H-h+1
+    #end_y = W-w+1
+    end_x = H
+    end_y = W
     perturbed = []
     masks = []
     inp = inp
-    reference = reference_func(inp)
+    reference = ref_func(inp).to(device)
     sals = 0
+    mask_sum = torch.zeros(B,1,H,W).to(device)
+    out_max = torch.tensor(0).to(device)
     for i in  range(0,end_x, dh):
         for j in range(0,end_y,dw):
             mask = torch.zeros(B,1,H,W).to(device)
             mask[:,:,i:i+h,j:j+w] = 1
-            perturbed.append(inp*mask + reference*(1-mask))
+            #perturbed.append(inp*mask + reference*(1-mask))
             masks.append(mask)
-            if len(perturbed) == batch:
-                perturbed = torch.cat(perturbed, 0)
+            if len(masks) == batch:
                 masks = torch.cat(masks, 0)
+                perturbed = inp*masks + reference*(1-masks)
+                #perturbed = torch.cat(perturbed, 0)
+                mask_sum += torch.sum(masks, 0,keepdim = True)
                 with torch.no_grad():
                     #for i in range(0,N, batch):
-                    weights = model(perturbed)[:,channel].sum(-1).sum(-1)
+                    out = model(perturbed)[:,channel]
+                    out_max = torch.max(out_max,out.max())
+                    weights= torch.sum(out, dim = (1,2))
+                    #weights = torch.rand_like(weights)
                     b = weights.shape[0]
                     weights = weights.view(1,b)
                     masks = masks.view(b, -1)
@@ -725,19 +732,38 @@ def channel_local_act(model, inp, channel, block_size,stride_size = 1, reference
                     sals+=sal
                 perturbed = []
                 masks = []
-    if len(perturbed) > 0:
-        perturbed = torch.cat(perturbed, 0)
+    if len(masks) > 0:
+        #perturbed = torch.cat(perturbed, 0)
         masks = torch.cat(masks, 0)
+        perturbed = inp*masks + reference*(1-masks)
+        mask_sum += torch.sum(masks, 0,keepdim = True)
         with torch.no_grad():
             #for i in range(0,N, batch):
-            weights = model(perturbed)[:,channel].sum(-1).sum(-1)
+            out = model(perturbed)[:,channel]
+            out_max = torch.max(out_max,out.max())
+            weights= torch.sum(out, dim = (1,2))
             b = weights.shape[0]
             weights = weights.view(1,b)
             masks = masks.view(b, -1)
             sal = torch.matmul(weights, masks).cpu()
             sal = sal.view(-1,1,H,W)
             sals+=sal
-    return sals.to(device)
+        perturbed.cpu()
+        masks.cpu()
+    sals = sals.to(device)
+    #print(mask_sum.shape)
+    #print(mask_sum[:,:,10:25,10:25])
+    #print(sals.max())
+    #print(sals.min())
+    #print(sals[:,:,10:25,10:25])
+    #print(sals.shape)
+    sals = sals/mask_sum
+    #print(sals[:,:,10:25,10:25])
+    #print(sals.max())
+    #print(sals.min())
+    #print(out_max)
+    #return sals.to(device)
+    return sals,out_max
             #print(perturbed)
     #perturbed = torch.cat(perturbed, 0)
     #masks = torch.cat(masks, 0)
@@ -746,6 +772,14 @@ def channel_local_act(model, inp, channel, block_size,stride_size = 1, reference
     #    for i in range(0,N, batch):
     #        weights = model(perturbed[i:min(i+batch,N)].to(device))[:,channel].sum(-1).sum(-1)
     #sal = torch.matmul(weights.transpose(), masks.to(device))
+
+
+
+
+
+
+
+
 
 
 
